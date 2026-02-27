@@ -8,42 +8,72 @@ class CortexPredictor:
         self.model = LogisticRegression()
         self.is_trained = False
         self.model_path = model_path
+        self._history = []  # Buffer for temporal context
+        self._cum_sw = 0.0
+        self._cum_idle = 0.0
         if model_path and os.path.exists(model_path):
             self.load_model(model_path)
+
+    def reset_history(self):
+        """Resets the temporal context buffer and accumulators."""
+        self._history = []
+        self._cum_sw = 0.0
+        self._cum_idle = 0.0
 
     def construct_feature_vector(self, telemetry: dict,
                                   session_duration_sec: float = 0.0,
                                   expected_duration_sec: float = 3600.0,
                                   previous_state=None):
         """
-        Builds the 7-feature raw telemetry vector fed to the ML model.
-
-        Features match exactly what was used during training (preprocess.py):
-        [switch_rate_norm, motor_var_norm, distractor_norm, idle_ratio,
-         scroll_entropy, passive_playback, duration_norm]
-
-        All values normalised to [0,1]. previous_state kept for API
-        compatibility with BayesianAdapter but not used (delta signals
-        are captured implicitly by the session_duration progression).
+        Builds a 39-dimensional feature vector [Current, T-1, T-2].
+        Each 13-dim block: [sw, mv, dist, idle, scroll, pp, dur, c_sw, c_idle, panic, lethargy, sw_std, idle_std]
         """
-        sw       = float(telemetry.get('switch_rate', 0))
-        mv       = float(telemetry.get('motor_var', 0))
-        dist     = float(telemetry.get('distractor_attempts', 0))
-        ir       = float(telemetry.get('idle_ratio', 0))
-        se       = float(telemetry.get('scroll_entropy', 0))
-        pp       = float(telemetry.get('passive_playback', 0))
-        dur_norm = min(session_duration_sec / max(expected_duration_sec, 1.0), 1.0)
+        sw   = float(telemetry.get('switch_rate', 0))
+        mv   = float(telemetry.get('motor_var', 0))
+        dist = float(telemetry.get('distractor_attempts', 0))
+        ir   = float(telemetry.get('idle_ratio', 0))
+        se   = float(telemetry.get('scroll_entropy', 0))
+        pp   = float(telemetry.get('passive_playback', 0))
+        dur  = min(session_duration_sec / max(expected_duration_sec, 1.0), 1.0)
+        
+        # Accumulators
+        norm_sw = min(sw / 3.0, 1.0)
+        self._cum_sw   += norm_sw
+        self._cum_idle += ir
 
-        feat = np.array([
-            min(sw   / 3.0, 1.0),   # switch_rate_norm
-            min(mv   / 2.0, 1.0),   # motor_var_norm
-            min(dist / 5.0, 1.0),   # distractor_norm
-            np.clip(ir, 0.0, 1.0),  # idle_ratio
-            np.clip(se, 0.0, 1.0),  # scroll_entropy
-            np.clip(pp, 0.0, 1.0),  # passive_playback
-            dur_norm,               # session_duration_norm
-        ])
-        return feat.reshape(1, -1)
+        panic_scroll = norm_sw * np.clip(se, 0, 1)
+        lethargy     = np.clip(pp, 0, 1) * (1.0 - norm_sw)
+
+        # Variability features (standard deviation over history)
+        if len(self._history) >= 2:
+            recent_sw   = [norm_sw, self._history[-1][0], self._history[-2][0]]
+            recent_idle = [ir, self._history[-1][3], self._history[-2][3]]
+            sw_std      = float(np.std(recent_sw))
+            idle_std    = float(np.std(recent_idle))
+        else:
+            sw_std, idle_std = 0.0, 0.0
+
+        current_feat = [
+            norm_sw, min(mv / 2.0, 1.0), min(dist / 5.0, 1.0),
+            np.clip(ir, 0, 1), np.clip(se, 0, 1), np.clip(pp, 0, 1), dur,
+            min(self._cum_sw / 15.0, 1.0), min(self._cum_idle / 15.0, 1.0),
+            panic_scroll, lethargy, sw_std, idle_std
+        ]
+
+        # Construct 39-dim vector [Current, T-1, T-2]
+        full_feat = list(current_feat)
+        for lag in range(1, 3):
+            if len(self._history) >= lag:
+                full_feat.extend(self._history[-lag])
+            else:
+                full_feat.extend([0.0] * 13)
+
+        # Update history
+        self._history.append(current_feat)
+        if len(self._history) > 10:
+            self._history = self._history[-5:]
+
+        return np.array(full_feat).reshape(1, -1)
 
     def predict_breakdown_prob(self, feature_vector):
         if not self.is_trained:
@@ -103,68 +133,48 @@ class CortexPredictor:
 class BayesianAdapter:
     """
     Implements personalized adaptation (Section 5.3).
-    Maintains its own internal LogisticRegression for online weight updates —
-    works regardless of whether the base model is LR or XGBoost.
+    Adapts the decision logic based on individual user behavior.
     """
-    def __init__(self, baseline_predictor, prior_variance=0.1, alpha=0.2):
+    def __init__(self, baseline_predictor, alpha=0.2):
         self.predictor = baseline_predictor
-        self.prior_variance = prior_variance
         self.alpha = alpha                   # personalization learning rate
         self.user_history = []              # List of (X, y_actual)
-        self._personal_model = None         # Internal LR for user-specific weights
-        self._baseline_weights = np.array([0.5, 0.4, 0.2, -0.3, 0.6, 0.2, 0.1])
+        self._personal_model = LogisticRegression()
 
     def record_feedback(self, X, actual_breakdown):
         """
         Record whether a breakdown actually occurred for a given state.
         Auto-adapts once 5+ interactions are recorded.
         """
-        self.user_history.append((X, actual_breakdown))
+        self.user_history.append((X.flatten(), actual_breakdown))
         if len(self.user_history) >= 5:
             self.adapt_model()
 
     def adapt_model(self):
         """
-        Bayesian-inspired update using the user's empirical breakdown history.
-        Fits a personal LR on user data, then blends its weights with the baseline.
-        Works with both LR and XGBoost base models.
+        Fits a local LogisticRegression on user-specific interactions to
+        individualize the breakdown threshold.
         """
+        X = np.array([h[0] for h in self.user_history])
+        y = np.array([h[1] for h in self.user_history])
+
+        if len(np.unique(y)) < 2:
+            return # Need local samples of both focus and breakdown
+
+        self._personal_model.fit(X, y)
         print(f"Adapting model based on {len(self.user_history)} user interactions...")
+        self.is_personalized = True
+        print("Model adapted successfully.")
 
-        X_user = np.array([h[0].flatten() for h in self.user_history])
-        y_user = np.array([h[1] for h in self.user_history])
-
-        if len(np.unique(y_user)) > 1:
-            # Fit a personal model on user-specific history
-            user_model = LogisticRegression(C=1.0, max_iter=500)
-            user_model.fit(X_user, y_user)
-            user_weights = user_model.coef_[0]
-
-            # Get baseline weights — from coef_ if LR, else use defaults
-            if hasattr(self.predictor.model, 'coef_') and self.predictor.is_trained:
-                baseline_weights = self.predictor.model.coef_[0]
-            else:
-                baseline_weights = self._baseline_weights
-
-            # Bayesian blend: (1-alpha) * prior + alpha * user likelihood
-            blended = (1 - self.alpha) * baseline_weights + self.alpha * user_weights
-
-            # Store blended model as the personal adaptation layer
-            self._personal_model = user_model
-            self._personal_model.coef_ = np.array([blended])
-            print("Model adapted successfully.")
-        else:
-            print("Insufficient class diversity in user history to adapt "
-                  "(need both breakdown and non-breakdown events).")
-
-    def predict_proba(self, X):
+    def predict_personalized(self, X):
         """
-        Blended prediction: base model + personal adaptation.
-        Falls back to base model if not enough data to adapt.
+        Blended prediction: base XGBoost + local personalized LR model.
         """
-        base_prob = self.predictor.predict_breakdown_prob(X)
-        if self._personal_model is None:
+        base_prob = float(self.predictor.predict_breakdown_prob(X))
+        if not hasattr(self, 'is_personalized'):
             return base_prob
-        personal_prob = self._personal_model.predict_proba(X)[0][1]
+        
+        personal_prob = float(self._personal_model.predict_proba(X)[0][1])
+        # Blend: trust the personal model 30% after it adapts
         return (1 - self.alpha) * base_prob + self.alpha * personal_prob
 

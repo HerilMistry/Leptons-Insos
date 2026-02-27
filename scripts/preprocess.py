@@ -112,21 +112,12 @@ def merge_datasets(nasa_file, mooc_file, mouse_file, output_file):
         ms_row = mouse.sample(1).iloc[0] if not mouse.empty else \
                  pd.Series({'motor_var': 0.1, 'rt_mean': 500})
 
-        # ── REAL LABEL from human cognitive load ratings ──────────────────────
-        # s_frustration: NASA-TLX self-reported frustration [0,1]
-        # s_effort: NASA-TLX self-reported effort [0,1]
-        # click_through_rate: MOOC engagement (low = disengaged) [0,1]
-        #
-        # Breakdown = high frustration + high effort AND/OR low engagement
-        # These are INDEPENDENT of the feature values — eliminates tautology.
+        # ── REFINED LABELING: Spatiotemporal smoothing ────────────────────────
         frustration_score = float(n_row['s_frustration'])
         effort_score      = float(n_row['s_effort'])
-        engagement_score  = float(m_row['click_through_rate'])   # high = engaged
-        cognitive_load    = 0.5 * frustration_score + 0.3 * effort_score + \
-                            0.2 * (1.0 - engagement_score)
-        # Add small noise so model can't learn a hard threshold deterministically
-        cognitive_load += np.random.normal(0, 0.04)
-        session_label = 1 if cognitive_load > 0.45 else 0
+        engagement_score  = float(m_row['click_through_rate'])
+        cognitive_load = 0.5 * frustration_score + 0.3 * effort_score + \
+                        0.2 * (1.0 - engagement_score)
         # ──────────────────────────────────────────────────────────────────────
 
         # Scenario telemetry ranges (matching real Chrome extension signals)
@@ -141,7 +132,6 @@ def merge_datasets(nasa_file, mooc_file, mouse_file, output_file):
             idle_sig    = np.random.uniform(0.0, 0.1)
             sw_pressure = np.random.uniform(0.0, 0.15)
             expected_min = 60
-
         elif scenario == 'conflict':
             switch_rate = np.random.uniform(0.8, 2.5)
             motor_var   = np.random.uniform(0.6, 1.5)
@@ -153,7 +143,6 @@ def merge_datasets(nasa_file, mooc_file, mouse_file, output_file):
             idle_sig    = np.random.uniform(0.0, 0.1)
             sw_pressure = np.random.uniform(0.8, 2.0)
             expected_min = 60
-
         elif scenario == 'drift':
             switch_rate = np.random.uniform(0.0, 0.15)
             motor_var   = np.random.uniform(0.0, 0.08)
@@ -165,7 +154,6 @@ def merge_datasets(nasa_file, mooc_file, mouse_file, output_file):
             idle_sig    = np.random.uniform(0.6, 0.95)
             sw_pressure = np.random.uniform(0.0, 0.1)
             expected_min = 45
-
         else:  # fatigue
             switch_rate = np.random.uniform(0.2, 0.7)
             motor_var   = np.random.uniform(0.1, 0.5)
@@ -178,10 +166,14 @@ def merge_datasets(nasa_file, mooc_file, mouse_file, output_file):
             sw_pressure = np.random.uniform(0.2, 0.7)
             expected_min = 120
 
-        # Run real StateEngine — used only for session_duration_norm via F_t
         se = StateEngine(expected_duration_min=expected_min)
         session_start_sec = np.random.uniform(0, expected_min * 30)
         expected_sec = expected_min * 60
+
+        # Buffer to store the last 2 timesteps for temporal lookback
+        history = []
+        cum_sw     = 0.0
+        cum_idle   = 0.0
 
         for t in range(session_len):
             session_sec = session_start_sec + t * 5
@@ -195,27 +187,57 @@ def merge_datasets(nasa_file, mooc_file, mouse_file, output_file):
             se_  = np.clip(scroll_ent   + noise(0.03), 0, 1)
             pp   = np.clip(passive       + noise(0.02), 0, 1)
             dur_norm = min(session_sec / max(expected_sec, 1), 1.0)
+            
+            # Accumulators (mimic brain load buildup)
+            norm_sw = min(sw / 3.0, 1.0)
+            cum_sw   += norm_sw
+            cum_idle += ir
 
-            # ── FEATURE VECTOR: 7 raw telemetry signals ───────────────────────
-            # Normalised to [0,1] so XGBoost doesn't need to infer scales.
-            # switch_rate capped at 3.0 (>3 tabs/min is extreme), motor_var at 2.0
-            feat = [
-                min(sw   / 3.0, 1.0),   # switch_rate_norm
-                min(mv   / 2.0, 1.0),   # motor_var_norm
-                min(dist / 5.0, 1.0),   # distractor_norm
-                ir,                      # idle_ratio       [0,1]
-                se_,                     # scroll_entropy   [0,1]
-                pp,                      # passive_playback [0,1]
-                dur_norm,                # session_duration_norm [0,1]
+            # Non-linear interactions
+            panic_scroll = norm_sw * se_
+            lethargy     = pp * (1.0 - norm_sw)
+
+            # --- VARIABILITY FEATURES (New) ---
+            # StdDev over the current lookback (3 steps)
+            if len(history) >= 2:
+                recent_sw   = [norm_sw, history[-1][0], history[-2][0]]
+                recent_idle = [ir, history[-1][3], history[-2][3]]
+                sw_std      = float(np.std(recent_sw))
+                idle_std    = float(np.std(recent_idle))
+            else:
+                sw_std, idle_std = 0.0, 0.0
+            # ----------------------------------
+
+            # Current feature window (13 dims total)
+            current_feat = [
+                norm_sw, min(mv / 2.0, 1.0), min(dist / 5.0, 1.0),
+                ir, se_, pp, dur_norm,
+                min(cum_sw / 15.0, 1.0), min(cum_idle / 15.0, 1.0),
+                panic_scroll, lethargy,
+                sw_std, idle_std
             ]
-            # ──────────────────────────────────────────────────────────────────
 
-            X.append(feat)
-            y.append(session_label)     # same ground-truth label for all windows
+            # ── TEMPORAL LOOKBACK CONSTRUCTION (39 dims total) ────────────────
+            lookback_feat = list(current_feat)
+            for lag in range(1, 3):
+                if len(history) >= lag:
+                    lookback_feat.extend(history[-lag])
+                else:
+                    lookback_feat.extend([0.0] * 13)
+
+            current_intensity = 0.6 * norm_sw + 0.4 * ir
+            window_label = 1 if (cognitive_load > 0.45 and current_intensity > 0.4) else 0
+
+            X.append(lookback_feat)
+            y.append(window_label)
             session_ids.append(session_id)
+            history.append(current_feat)
 
-    cols = ['switch_rate_norm', 'motor_var_norm', 'distractor_norm',
-            'idle_ratio', 'scroll_entropy', 'passive_playback', 'duration_norm']
+    base_cols = ['sw', 'mv', 'dist', 'idle', 'scroll', 'passive', 'dur', 'c_sw', 'c_idle', 'panic', 'lethargy', 'sw_std', 'idle_std']
+    cols = []
+    for suffix in ['', '_lag1', '_lag2']:
+        cols.extend([f"{c}{suffix}" for c in base_cols])
+
     final_df = pd.DataFrame(X, columns=cols)
     final_df['label']      = y
     final_df['session_id'] = session_ids

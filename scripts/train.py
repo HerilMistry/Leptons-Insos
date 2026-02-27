@@ -27,25 +27,39 @@ def main():
     os.makedirs('models', exist_ok=True)
 
     neg, pos = sum(y == 0), sum(y == 1)
+    # Heavy Recall Bias: multiply by 1.5 to prioritize minority class (breakdowns)
+    imbalance_ratio = float(neg / pos) * 1.5 
+
+    # --- FINAL PRODUCTION CONFIGURATION ---
+    # Optimized for 8% minority class + temporal + interactions.
     xgb = XGBClassifier(
-        n_estimators=300, max_depth=5, learning_rate=0.05,
-        subsample=0.8, colsample_bytree=0.8,
-        min_child_weight=3, gamma=0.1,
-        scale_pos_weight=neg / pos,
-        eval_metric='logloss', random_state=42, verbosity=0
+        n_estimators=500,  # more trees for deeper learning
+        max_depth=7,
+        learning_rate=0.02,
+        subsample=0.8,
+        colsample_bytree=0.8,
+        min_child_weight=1,
+        gamma=0.3,
+        reg_lambda=2.0,     # stronger L2 avoid overfitting
+        reg_alpha=1.0,      # stronger L1 avoid noise
+        scale_pos_weight=imbalance_ratio, 
+        eval_metric='logloss',
+        tree_method='hist',
+        random_state=42,
+        verbosity=0
     )
 
-    # Leave-One-Session-Out CV (GroupKFold) — no intra-session leakage
-    print("\nRunning Leave-One-Session-Out (LOSO) cross-validation...")
+    # Leave-One-Session-Out (LOSO) cross-validation
+    print("\nRunning Production-Grade LOSO cross-validation...")
     gkf    = GroupKFold(n_splits=5)
     
     cv_f1  = cross_val_score(xgb, X, y, groups=groups, cv=gkf, scoring='f1').mean()
     cv_acc = cross_val_score(xgb, X, y, groups=groups, cv=gkf, scoring='accuracy').mean()
     cv_auc = cross_val_score(xgb, X, y, groups=groups, cv=gkf, scoring='roc_auc').mean()
 
-    print(f"  LOSO Accuracy : {cv_acc:.4f}")
-    print(f"  LOSO F1       : {cv_f1:.4f}")
-    print(f"  LOSO ROC-AUC  : {cv_auc:.4f}")
+    print(f"  Production Accuracy : {cv_acc:.4f}")
+    print(f"  Production F1       : {cv_f1:.4f}")
+    print(f"  Production ROC-AUC  : {cv_auc:.4f}")
 
     # Final fit on full dataset
     xgb.fit(X, y)

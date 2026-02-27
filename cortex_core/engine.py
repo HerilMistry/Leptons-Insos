@@ -145,13 +145,13 @@ class CortexEngine:
             expected_duration_sec=float(self.state_engine.expected_duration),
         )
 
-        # 6. Predict breakdown probability
-        breakdown_prob = float(self.predictor.predict_breakdown_prob(x_vec))
+        # 6. Predict breakdown probability (Personalised)
+        breakdown_prob = float(self.adapter.predict_personalized(x_vec))
 
         # 7. SHAP-style feature attribution — raw signal names
-        feature_names = ['switch_rate', 'motor_var', 'distractor_attempts',
-                         'idle_ratio', 'scroll_entropy', 'passive_playback',
-                         'session_duration']
+        feature_names = ['sw', 'mv', 'dist', 'idle', 'scroll', 'pp', 'dur', 'sw_strain', 'idle_strain', 'panic', 'lethargy', 'sw_std', 'idle_std',
+                         'sw_lag1', 'mv_lag1', 'dist_lag1', 'idle_lag1', 'scroll_lag1', 'pp_lag1', 'dur_lag1', 'sw_strain_lag1', 'idle_strain_lag1', 'panic_lag1', 'lethargy_lag1', 'sw_std_lag1', 'idle_std_lag1',
+                         'sw_lag2', 'mv_lag2', 'dist_lag2', 'idle_lag2', 'scroll_lag2', 'pp_lag2', 'dur_lag2', 'sw_strain_lag2', 'idle_strain_lag2', 'panic_lag2', 'lethargy_lag2', 'sw_std_lag2', 'idle_std_lag2']
         raw_attribution = self.predictor.explain_prediction(x_vec, feature_names)
 
         # Return top 3 contributors (matching API spec style)
@@ -198,9 +198,7 @@ class CortexEngine:
             self.adapter.record_feedback(x_vec, actual_breakdown)
 
     def reset_session(self):
-        """Call at the start of each new session to reset accumulator state."""
-        self.state_engine = StateEngine(
-            expected_duration_min=self.state_engine.expected_duration // 60,
-            theta=self.state_engine.theta
-        )
+        """Resets the state engine and temporal context for a new session."""
+        self.state_engine.reset()
+        self.predictor.reset_history()
         self._previous_state = None
