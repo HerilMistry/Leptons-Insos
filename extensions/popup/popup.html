@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>CortexFlow</title>
+  <link rel="stylesheet" href="popup.css" />
+</head>
+<body>
+  <div class="cf-popup">
+
+    <!-- Header -->
+    <div class="cf-popup-header">
+      <img src="../icons/icon48.png" alt="CortexFlow" class="cf-popup-logo" />
+      <h1>CortexFlow</h1>
+    </div>
+
+    <!-- Status -->
+    <div id="cf-status" class="cf-status cf-status-inactive">
+      <span id="cf-status-dot" class="cf-dot"></span>
+      <span id="cf-status-text">Inactive</span>
+    </div>
+
+    <!-- NLP Task classifier -->
+    <div class="cf-field cf-nlp-field">
+      <div class="cf-nlp-input-wrap">
+        <input
+          type="text"
+          id="cf-task-input"
+          class="cf-task-input"
+          maxlength="120"
+          placeholder="What are you working on? e.g. 'studying algorithms for exam'"
+        />
+        <span id="cf-char-count" class="cf-char-count">0/120</span>
+      </div>
+      <div id="cf-task-tag" class="cf-task-tag cf-hidden"></div>
+    </div>
+
+    <!-- Session controls -->
+    <div class="cf-actions">
+      <button id="cf-start-btn" class="cf-btn cf-btn-primary">Start Session</button>
+      <button id="cf-end-btn" class="cf-btn cf-btn-danger" disabled>End Session</button>
+    </div>
+
+    <!-- Live stats -->
+    <div id="cf-live-stats" class="cf-live-stats cf-hidden">
+      <div class="cf-stat-row">
+        <span class="cf-stat-label">Elapsed</span>
+        <span id="cf-elapsed" class="cf-stat-value">0:00</span>
+      </div>
+      <div class="cf-stat-row">
+        <span class="cf-stat-label">Tab switches</span>
+        <span id="cf-switches" class="cf-stat-value">0</span>
+      </div>
+      <div class="cf-stat-row">
+        <span class="cf-stat-label">Risk level</span>
+        <span id="cf-risk-level" class="cf-stat-value">—</span>
+      </div>
+    </div>
+
+    <!-- Dashboard link -->
+    <a id="cf-dashboard-link" class="cf-dashboard-link" target="_blank">
+      Open Dashboard ↗
+    </a>
+
+    <!-- Footer -->
+    <div class="cf-popup-footer">
+      Team 9 Leptons · v1.0
+    </div>
+  </div>
+
+  <script src="../config.js"></script>
+  <script src="popup.js"></script>
+</body>
+</html>

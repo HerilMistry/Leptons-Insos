@@ -21,6 +21,13 @@ Leptons-Insos/
 │   └── baseline_model.joblib  # Pre-trained baseline (ready to use)
 ├── tests/
 │   └── verify_session.py # End-to-end simulation and verification
+├── extensions/           # CortexFlow Chrome Extension
+│   ├── manifest.json     # MV3 manifest
+│   ├── config.js         # Central config (API URL, thresholds)
+│   ├── background/       # Service worker (session + tab tracking)
+│   ├── content/          # Telemetry collector + overlay UI
+│   ├── popup/            # Toolbar popup (NLP task classifier)
+│   └── icons/            # Extension icons
 ├── data/                 # Raw + processed datasets (see data/README below)
 └── requirements.txt
 ```
@@ -156,4 +163,5 @@ Raw data is **not committed** (too large). Processed outputs in `data/processed/
 | Branch | Purpose |
 |--------|---------|
 | `main` | Stable ML core — backend integration target |
+| `extension` | CortexFlow Chrome Extension module |
 | `taksh` | Feature development |
