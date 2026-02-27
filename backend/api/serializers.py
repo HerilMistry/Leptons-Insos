@@ -48,3 +48,51 @@ class TelemetryResponseSerializer(serializers.Serializer):
     accumulated_conflict = serializers.FloatField()
     breakdown_imminent = serializers.BooleanField()
     network = NetworkSerializer()
+
+# ---------------------------------------------------------------------------
+# GET /api/brain-map/<session_id>
+# ---------------------------------------------------------------------------
+
+
+class BrainRegionSerializer(serializers.Serializer):
+    activation = serializers.FloatField()
+    color = serializers.CharField()
+    meaning = serializers.CharField(required=False)
+
+
+class BrainRegionsMapSerializer(serializers.Serializer):
+    DLPFC = BrainRegionSerializer()
+    ACC = BrainRegionSerializer()
+    Insula = BrainRegionSerializer()
+    PCC = BrainRegionSerializer()
+    mPFC = BrainRegionSerializer()
+    BasalGanglia = BrainRegionSerializer()
+
+
+class BrainMapMetadataSerializer(serializers.Serializer):
+    data_points = serializers.IntegerField()
+    time_window_minutes = serializers.IntegerField()
+    timestamp = serializers.CharField()
+    note = serializers.CharField(required=False)
+    averages = serializers.DictField(required=False)
+
+
+class BrainMapResponseSerializer(serializers.Serializer):
+    brain_regions = BrainRegionsMapSerializer()
+    metadata = BrainMapMetadataSerializer()
+
+
+# ---------------------------------------------------------------------------
+# GET /api/brain-explainer/<session_id>
+# ---------------------------------------------------------------------------
+
+class NeuroExplainerMetadataSerializer(serializers.Serializer):
+    data_points = serializers.IntegerField()
+    timestamp = serializers.CharField()
+    error = serializers.BooleanField(required=False)
+    metrics_used = serializers.DictField(required=False)
+
+
+class NeuroExplainerResponseSerializer(serializers.Serializer):
+    explanation = serializers.CharField()
+    metadata = NeuroExplainerMetadataSerializer()

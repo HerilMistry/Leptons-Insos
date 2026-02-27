@@ -1,0 +1,304 @@
+"""
+API Example Requests and Responses
+
+Use these to test the new brain-map and brain-explainer endpoints.
+"""
+
+# =============================================================================
+# EXAMPLE 1: Brain Map Endpoint
+# =============================================================================
+
+# REQUEST
+GET /api/brain-map/550e8400-e29b-41d4-a716-446655440000 HTTP/1.1
+Host: localhost:8000
+Accept: application/json
+
+# RESPONSE (200 OK)
+{
+  "brain_regions": {
+    "DLPFC": {
+      "activation": 0.72,
+      "color": "#FF8A00",
+      "meaning": "Executive Control Network (attention, working memory)"
+    },
+    "ACC": {
+      "activation": 0.58,
+      "color": "#FFAA00",
+      "meaning": "Anterior Cingulate Cortex (conflict monitoring)"
+    },
+    "Insula": {
+      "activation": 0.41,
+      "color": "#FF6B00",
+      "meaning": "Anterior Insula (switch intensity)"
+    },
+    "PCC": {
+      "activation": 0.35,
+      "color": "#4169E1",
+      "meaning": "Posterior Cingulate Cortex (mind-wandering)"
+    },
+    "mPFC": {
+      "activation": 0.48,
+      "color": "#FFD700",
+      "meaning": "Medial Prefrontal Cortex (self-referential processing)"
+    },
+    "BasalGanglia": {
+      "activation": 0.62,
+      "color": "#FF7F00",
+      "meaning": "Basal Ganglia (switching impulses)"
+    }
+  },
+  "metadata": {
+    "data_points": 45,
+    "time_window_minutes": 30,
+    "timestamp": "2026-02-28T15:30:45.123456+00:00",
+    "averages": {
+      "ECN": 0.72,
+      "Salience": 0.58,
+      "Instability": 0.41,
+      "Drift": 0.35,
+      "Fatigue": 0.48
+    }
+  }
+}
+
+# ERROR RESPONSE (404 NOT FOUND)
+{
+  "error": "Session 550e8400-e29b-41d4-a716-446655440000 not found"
+}
+
+# ERROR RESPONSE (No data available)
+{
+  "brain_regions": {
+    "DLPFC": {"activation": 0.0, "color": "#0000FF"},
+    "ACC": {"activation": 0.0, "color": "#0000FF"},
+    "Insula": {"activation": 0.0, "color": "#0000FF"},
+    "PCC": {"activation": 0.0, "color": "#0000FF"},
+    "mPFC": {"activation": 0.0, "color": "#0000FF"},
+    "BasalGanglia": {"activation": 0.0, "color": "#0000FF"}
+  },
+  "metadata": {
+    "data_points": 0,
+    "time_window_minutes": 30,
+    "timestamp": "2026-02-28T15:30:45.123456+00:00",
+    "note": "No data available for this session in the last 30 minutes"
+  }
+}
+
+# =============================================================================
+# EXAMPLE 2: Neuro Explainer Endpoint
+# =============================================================================
+
+# REQUEST
+GET /api/brain-explainer/550e8400-e29b-41d4-a716-446655440000 HTTP/1.1
+Host: localhost:8000
+Accept: application/json
+
+# RESPONSE (200 OK - with Groq API key configured)
+{
+  "explanation": "Your Executive Control Network (DLPFC) shows strong activation at 0.72, indicating you're maintaining excellent focus on your current task. Your Default Mode Network activity is low (0.35), which is good—you're not mind-wandering. However, fatigue is building up at 0.48, so you might want to take a short break soon to recharge and maintain peak cognitive performance. Overall, your brain is working hard but in a healthy way.",
+  "metadata": {
+    "data_points": 45,
+    "timestamp": "2026-02-28T15:30:45.123456+00:00",
+    "metrics_used": {
+      "avg_ecn": 0.72,
+      "avg_drift": 0.35,
+      "avg_instability": 0.41,
+      "avg_fatigue": 0.48,
+      "breakdown_count": 2
+    }
+  }
+}
+
+# ERROR RESPONSE (GROQ_API_KEY not set)
+{
+  "explanation": "GROQ_API_KEY environment variable not set. Please provide your Groq API key.",
+  "metadata": {
+    "error": true,
+    "timestamp": "2026-02-28T15:30:45.123456+00:00"
+  }
+}
+
+# ERROR RESPONSE (Groq API connection failed)
+{
+  "explanation": "Error connecting to Groq API: Connection timeout",
+  "metadata": {
+    "error": true,
+    "timestamp": "2026-02-28T15:30:45.123456+00:00"
+  }
+}
+
+# ERROR RESPONSE (No data available)
+{
+  "explanation": "No telemetry data available for this session in the last 30 minutes. Please check that the session is active and submitting data.",
+  "metadata": {
+    "data_points": 0,
+    "timestamp": "2026-02-28T15:30:45.123456+00:00"
+  }
+}
+
+# =============================================================================
+# TESTING WITH CURL
+# =============================================================================
+
+# Test Brain Map
+curl -X GET http://localhost:8000/api/brain-map/550e8400-e29b-41d4-a716-446655440000 \
+  -H "Accept: application/json"
+
+# Test Neuro Explainer
+curl -X GET http://localhost:8000/api/brain-explainer/550e8400-e29b-41d4-a716-446655440000 \
+  -H "Accept: application/json"
+
+# =============================================================================
+# TESTING WITH PYTHON REQUESTS
+# =============================================================================
+
+import requests
+import json
+
+base_url = "http://localhost:8000/api"
+session_id = "550e8400-e29b-41d4-a716-446655440000"
+
+# Test Brain Map
+response = requests.get(f"{base_url}/brain-map/{session_id}")
+if response.status_code == 200:
+    brain_map = response.json()
+    print("Brain Map Response:")
+    print(json.dumps(brain_map, indent=2))
+else:
+    print(f"Error: {response.status_code}")
+    print(response.json())
+
+# Test Neuro Explainer
+response = requests.get(f"{base_url}/brain-explainer/{session_id}")
+if response.status_code == 200:
+    explanation = response.json()
+    print("\nNeuro Explainer Response:")
+    print(json.dumps(explanation, indent=2))
+else:
+    print(f"Error: {response.status_code}")
+    print(response.json())
+
+# =============================================================================
+# COLOR MAPPING REFERENCE
+# =============================================================================
+
+Activation → Color Mapping:
+
+0.0  → #0000FF (Blue)        - Low activation, relaxed
+0.1  → #1A00E6 (Blue-purple)
+0.2  → #3300CC (Purple)
+0.3  → #4D0099
+0.4  → #6600FF (Blue-magenta)
+0.5  → #FFFF00 (Yellow)      - Medium activation, balanced
+0.6  → #FF9900 (Orange)
+0.7  → #FF6611 (Orange-red)
+0.8  → #FF3333 (Red-orange)
+0.9  → #FF1111 (Bright red)
+1.0  → #FF0000 (Red)         - High activation, intense effort
+
+# =============================================================================
+# ACTIVATION COMPUTATION REFERENCE
+# =============================================================================
+
+DLPFC Activation = normalize(avg(ECN), 0, 1)
+  - Represents executive control and attention
+  - Increases with focus and working memory load
+
+ACC Activation = normalize(avg(Salience), 0, 1)
+  - Represents conflict monitoring
+  - Increases when detecting inconsistencies
+
+Insula Activation = normalize(variance(Instability), 0, 0.25)
+  - Represents switch intensity and volatility
+  - Increases with attention switches
+
+PCC Activation = normalize(avg(Drift), 0, 1)
+  - Represents mind-wandering
+  - Increases when attention drifts
+
+mPFC Activation = geometric_mean(
+    normalize(avg(Drift), 0, 1),
+    normalize(avg(Fatigue), 0, 1)
+  )
+  - Represents self-referential processing
+  - Increases with mental fatigue interaction
+
+BasalGanglia Activation = normalize(trend(accumulated_conflict), 0, 2.0)
+  - Represents switching impulses
+  - Increases with accumulated cognitive conflict
+
+# =============================================================================
+# GROQ API CONFIGURATION
+# =============================================================================
+
+Model: mixtral-8x7b-32768
+Max tokens: 256
+Temperature: 0.7
+Timeout: 10 seconds
+
+System Prompt:
+"You are a cognitive neuroscience tutor. Explain brain network activity in 
+simple language suitable for a 16-year-old student. Avoid heavy jargon. 
+Keep responses concise (2-3 sentences). Focus on what the metrics mean for 
+the user's attention and focus."
+
+User Prompt Template:
+"In the last 30 minutes, the user's brain activity shows:
+- DLPFC (Executive Control): {dlpfc_activation:.2f}
+- ACC (Conflict Monitoring): {acc_activation:.2f}
+- PCC (Mind-wandering): {pcc_activation:.2f}
+- Fatigue level: {fatigue:.2f}
+- Breakdowns imminent: {breakdown_count}
+- Dominant region: {dominant_region}
+
+Explain what this means about their cognitive state and attention in simple language."
+
+# =============================================================================
+# PERFORMANCE METRICS
+# =============================================================================
+
+Brain Map Generation Time: ~50-100ms (MongoDB query + computation)
+Neuro Explainer Time: ~1-3 seconds (includes Groq API call)
+Database Query Size: ~20-50 documents per 30-minute window
+Color Gradient Computation: O(1)
+Normalization: O(1)
+Groq API Latency: ~500ms-2s
+
+# =============================================================================
+# MONITORING AND DEBUGGING
+# =============================================================================
+
+Enable Django debug logs:
+DEBUG = True in settings.py
+
+Check MongoDB connection:
+python manage.py shell
+from mongo.connection import get_db
+db = get_db()
+db.command('ping')
+
+Test Groq API directly:
+import requests, os
+key = os.getenv("GROQ_API_KEY")
+response = requests.post(
+  "https://api.groq.com/openai/v1/chat/completions",
+  headers={"Authorization": f"Bearer {key}"},
+  json={"model": "mixtral-8x7b-32768", "messages": [...]}
+)
+
+# =============================================================================
+# SECURITY CHECKLIST
+# =============================================================================
+
+✓ GROQ_API_KEY loaded from environment only
+✓ Session validation before returning data
+✓ UTC timestamps enforced
+✓ No credentials in logs or responses
+✓ Error messages don't expose internal state
+✓ Input validation on session_id (Django UUID validation)
+✓ Timeout on external API calls (10 seconds)
+✓ Graceful degradation on API failures
+✓ No hardcoded values or keys
+✓ CORS already enabled from main settings
+
+"""

@@ -11,11 +11,15 @@ from api.serializers import (
     SessionStartResponseSerializer,
     TelemetryRequestSerializer,
     TelemetryResponseSerializer,
+    BrainMapResponseSerializer,
+    NeuroExplainerResponseSerializer,
 )
 from ml_engine.state_model import compute_instability, compute_drift, compute_fatigue
 from ml_engine.temporal_dynamics import TemporalState
 from ml_engine.drift_diffusion import update_conflict
 from ml_engine.risk_model import compute_risk
+from ml_engine.brain_mapper import get_brain_map
+from ml_engine.neuro_explainer import generate_explanation
 from mongo.connection import get_model_outputs_collection
 
 User = get_user_model()
@@ -144,4 +148,46 @@ class TelemetryView(APIView):
             "network": network,
         }
         out = TelemetryResponseSerializer(payload)
+        return Response(out.data, status=status.HTTP_200_OK)
+
+class BrainMapView(APIView):
+    """GET /api/brain-map/<session_id> — get brain region activation map."""
+
+    def get(self, request, session_id):
+        # Validate session exists
+        try:
+            session = Session.objects.get(pk=session_id)
+        except Session.DoesNotExist:
+            return Response(
+                {"error": f"Session {session_id} not found"},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        # Generate brain map
+        brain_map = get_brain_map(session_id)
+
+        out = BrainMapResponseSerializer(brain_map)
+        return Response(out.data, status=status.HTTP_200_OK)
+
+
+class NeuroExplainerView(APIView):
+    """GET /api/brain-explainer/<session_id> — get cognitive state explanation."""
+
+    def get(self, request, session_id):
+        # Validate session exists
+        try:
+            session = Session.objects.get(pk=session_id)
+        except Session.DoesNotExist:
+            return Response(
+                {"error": f"Session {session_id} not found"},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        # Get brain map for context (optional optimization)
+        brain_map = get_brain_map(session_id)
+
+        # Generate explanation
+        explanation = generate_explanation(session_id, brain_map=brain_map)
+
+        out = NeuroExplainerResponseSerializer(explanation)
         return Response(out.data, status=status.HTTP_200_OK)
