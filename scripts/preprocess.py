@@ -84,7 +84,10 @@ def merge_datasets(nasa_file, mooc_file, mouse_file, output_file):
     X = []
     y = []
     
-    for _ in range(n_samples):
+    n_real = int(n_samples * 0.70)      # 70% from real dataset distributions
+    n_synthetic = n_samples - n_real    # 30% high-conflict augmentation
+
+    for _ in range(n_real):
         # Sample from real distributions
         n_row = nasa.sample(1).iloc[0]
         m_row = mooc.sample(1).iloc[0]
@@ -93,7 +96,7 @@ def merge_datasets(nasa_file, mooc_file, mouse_file, output_file):
         # Construct feature vector based on reported architecture
         # X = [I_t, D_t, F_t, ECN_t, A_t, delta_I_t, delta_D_t]
         
-        # We'll map real metrics to our latent state variables:
+        # Map real metrics to latent state variables:
         # Instability (I_t) <- frustration + motor_var + rt_mean (normalized)
         I_t = (n_row['s_frustration'] + ms_row['motor_var']/100.0 + ms_row['rt_mean']/2000.0) / 3.0
         
@@ -105,10 +108,45 @@ def merge_datasets(nasa_file, mooc_file, mouse_file, output_file):
         
         X.append([I_t, D_t, F_t, 1.0 - F_t, I_t - (1.0 - F_t), 0, 0])
         
-        # Label: High load and high instability = breakdown
-        label = 1 if (F_t > 0.7 and I_t > 0.6) or (D_t > 0.8) else 0
+        # Label: aligned with StateEngine.detect_breakdown() logic
+        label = 1 if (I_t > 0.5) or (D_t > 0.75) or (F_t > 0.6 and I_t > 0.4) else 0
+        y.append(label)
+
+    # Augment with synthetic high-conflict sessions covering StateEngine's real output range
+    # StateEngine can produce I_t up to ~2.0 during heavy tab-switching (switch_rate=1.5, motor_var=1.2)
+    np.random.seed(42)
+    for _ in range(n_synthetic):
+        scenario = np.random.choice(['focus', 'conflict', 'drift', 'fatigue'], p=[0.25, 0.35, 0.25, 0.15])
+        if scenario == 'focus':
+            I_t = np.random.uniform(0.0, 0.3)
+            D_t = np.random.uniform(0.0, 0.3)
+            F_t = np.random.uniform(0.0, 0.4)
+            label = 0
+        elif scenario == 'conflict':    # High tab-switching — mirrors StateEngine Phase 2
+            I_t = np.random.uniform(1.0, 2.0)
+            D_t = np.random.uniform(0.0, 0.3)
+            F_t = np.random.uniform(0.3, 0.7)
+            label = 1
+        elif scenario == 'drift':
+            I_t = np.random.uniform(0.1, 0.5)
+            D_t = np.random.uniform(0.75, 1.0)
+            F_t = np.random.uniform(0.2, 0.6)
+            label = 1
+        else:  # fatigue
+            I_t = np.random.uniform(0.4, 0.7)
+            D_t = np.random.uniform(0.3, 0.7)
+            F_t = np.random.uniform(0.6, 0.9)
+            label = 1
+        
+        delta_I = np.random.uniform(-0.2, 0.2) if scenario != 'conflict' else np.random.uniform(0.8, 1.6)
+        delta_D = np.random.uniform(-0.1, 0.1)
+        ECN_t = np.clip(1.0 - I_t * 0.3 - F_t * 0.2, 0, 1)
+        A_t = max(0, I_t - ECN_t) if scenario == 'conflict' else 0.0
+        
+        X.append([I_t, D_t, F_t, ECN_t, A_t, delta_I, delta_D])
         y.append(label)
         
+
     final_df = pd.DataFrame(X, columns=['I_t', 'D_t', 'F_t', 'ECN_t', 'A_t', 'delta_I', 'delta_D'])
     final_df['label'] = y
     final_df.to_csv(output_file, index=False)
