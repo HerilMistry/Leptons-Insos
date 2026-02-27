@@ -31,26 +31,35 @@ class CortexPredictor:
     def explain_prediction(self, feature_vector, feature_names=None):
         """
         Implements SHAP-style feature attribution (Section 5.4).
-        Identifies which features contributed most to the current risk.
+        Works with both Logistic Regression (coef_) and XGBoost (feature_importances_).
         """
         if feature_names is None:
-            feature_names = ['Instability', 'Drift', 'Fatigue', 'ECN', 'Conflict(A_t)', 'delta_I', 'delta_D']
-            
+            feature_names = ['Instability', 'Drift', 'Fatigue', 'ECN',
+                             'Conflict(A_t)', 'delta_I', 'delta_D']
+
         if not self.is_trained:
+            # Baseline weights from technical report
             weights = np.array([0.5, 0.4, 0.2, -0.3, 0.6, 0.2, 0.1])
+            contributions = feature_vector.flatten() * weights
         else:
-            weights = self.model.coef_[0]
-            
-        contributions = feature_vector.flatten() * weights
-        
-        # Sort by absolute contribution
+            # Support both LR (coef_) and XGBoost (feature_importances_)
+            if hasattr(self.model, 'coef_'):
+                weights = self.model.coef_[0]
+                contributions = feature_vector.flatten() * weights
+            elif hasattr(self.model, 'feature_importances_'):
+                # XGBoost: use feature importance × feature value as contribution proxy
+                contributions = feature_vector.flatten() * self.model.feature_importances_
+            else:
+                contributions = feature_vector.flatten()
+
         explanation = sorted(
-            zip(feature_names, contributions), 
-            key=lambda x: abs(x[1]), 
+            zip(feature_names, contributions),
+            key=lambda x: abs(x[1]),
             reverse=True
         )
-        
+
         return {name: float(val) for name, val in explanation}
+
 
     def train(self, X_train, y_train):
         self.model.fit(X_train, y_train)
@@ -70,57 +79,68 @@ class CortexPredictor:
 class BayesianAdapter:
     """
     Implements personalized adaptation (Section 5.3).
-    Adjusts weights/thresholds based on empirical breakdown history.
+    Maintains its own internal LogisticRegression for online weight updates —
+    works regardless of whether the base model is LR or XGBoost.
     """
-    def __init__(self, baseline_predictor, prior_variance=0.1):
+    def __init__(self, baseline_predictor, prior_variance=0.1, alpha=0.2):
         self.predictor = baseline_predictor
         self.prior_variance = prior_variance
-        self.user_history = [] # List of (X, y_actual)
-        
+        self.alpha = alpha                   # personalization learning rate
+        self.user_history = []              # List of (X, y_actual)
+        self._personal_model = None         # Internal LR for user-specific weights
+        self._baseline_weights = np.array([0.5, 0.4, 0.2, -0.3, 0.6, 0.2, 0.1])
+
     def record_feedback(self, X, actual_breakdown):
         """
         Record whether a breakdown actually occurred for a given state.
-        This provides the grounding for Bayesian updates.
+        Auto-adapts once 5+ interactions are recorded.
         """
         self.user_history.append((X, actual_breakdown))
-        
-        # If we have enough data, perform a simple Bayesian nudge
         if len(self.user_history) >= 5:
             self.adapt_model()
 
     def adapt_model(self):
         """
-        Performs a Bayesian-inspired update on the predictor weights.
-        Adjusts the baseline weights by incorporating user-specific history.
+        Bayesian-inspired update using the user's empirical breakdown history.
+        Fits a personal LR on user data, then blends its weights with the baseline.
+        Works with both LR and XGBoost base models.
         """
         print(f"Adapting model based on {len(self.user_history)} user interactions...")
-        
+
         X_user = np.array([h[0].flatten() for h in self.user_history])
         y_user = np.array([h[1] for h in self.user_history])
-        
+
         if len(np.unique(y_user)) > 1:
-            # Simple online adaptation: 
-            # 1. Fit a small model on user data
-            user_specific_model = LogisticRegression(C=1.0) # High C = trust user data more
-            user_specific_model.fit(X_user, y_user)
-            
-            # 2. Blend weights: Baseline + User Gradient
-            # If predictor is not trained, use baseline weights
-            baseline_weights = self.predictor.model.coef_[0] if self.predictor.is_trained else np.array([0.5, 0.4, 0.2, -0.3, 0.6, 0.2, 0.1])
-            user_weights = user_specific_model.coef_[0]
-            
-            # Alpha controls the learning rate for personalization
-            alpha = 0.2 
-            new_weights = (1 - alpha) * baseline_weights + alpha * user_weights
-            
-            # Update the predictor
-            if not self.predictor.is_trained:
-                # Force training if not already trained
-                dummy_X = np.random.randn(10, 7)
-                dummy_y = np.random.randint(0, 2, 10)
-                self.predictor.train(dummy_X, dummy_y)
-            
-            self.predictor.model.coef_ = np.array([new_weights])
+            # Fit a personal model on user-specific history
+            user_model = LogisticRegression(C=1.0, max_iter=500)
+            user_model.fit(X_user, y_user)
+            user_weights = user_model.coef_[0]
+
+            # Get baseline weights — from coef_ if LR, else use defaults
+            if hasattr(self.predictor.model, 'coef_') and self.predictor.is_trained:
+                baseline_weights = self.predictor.model.coef_[0]
+            else:
+                baseline_weights = self._baseline_weights
+
+            # Bayesian blend: (1-alpha) * prior + alpha * user likelihood
+            blended = (1 - self.alpha) * baseline_weights + self.alpha * user_weights
+
+            # Store blended model as the personal adaptation layer
+            self._personal_model = user_model
+            self._personal_model.coef_ = np.array([blended])
             print("Model adapted successfully.")
         else:
-            print("Insufficient class diversity in user history to adapt (need both breakdown and non-breakdown events).")
+            print("Insufficient class diversity in user history to adapt "
+                  "(need both breakdown and non-breakdown events).")
+
+    def predict_proba(self, X):
+        """
+        Blended prediction: base model + personal adaptation.
+        Falls back to base model if not enough data to adapt.
+        """
+        base_prob = self.predictor.predict_breakdown_prob(X)
+        if self._personal_model is None:
+            return base_prob
+        personal_prob = self._personal_model.predict_proba(X)[0][1]
+        return (1 - self.alpha) * base_prob + self.alpha * personal_prob
+
