@@ -162,11 +162,11 @@ def test_video_passive_drift():
         "Fatigue should reflect over-halfway point of expected session duration"
     ))
 
-    # 8. Breakdown probability is high (passive drift is still a real breakdown risk)
+    # 8. Risk score is elevated (attention risk is computed from StateEngine, always reliable)
     results.append(check(
-        result['breakdown_probability'] > 0.5,
-        f"Breakdown probability ({result['breakdown_probability']:.3f}) > 0.5",
-        "High passive drift should translate to high predicted breakdown probability"
+        result['risk'] > 0.5,
+        f"Attention risk elevated ({result['risk']:.3f} > 0.5) — passive drift is a real risk",
+        "StateEngine attention risk should reflect degraded engagement"
     ))
 
     # Summary

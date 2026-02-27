@@ -74,85 +74,110 @@ def process_mouse_tracking(mt_dir):
 
 def merge_datasets(nasa_file, mooc_file, mouse_file, output_file):
     """
-    Combines distributions from all three sources into session-like training rows.
+    Combines distributions from all three sources into session-based training rows.
+
+    Generates N sessions of M timesteps each. Within each session, features
+    evolve naturally so that delta_I and delta_D are real (non-zero) temporal
+    differences between consecutive 5-second telemetry windows.
     """
     nasa = pd.read_csv(nasa_file)
     mooc = pd.read_csv(mooc_file)
     mouse = pd.read_csv(mouse_file)
-    
-    n_samples = 2000
-    X = []
-    y = []
-    
-    n_real = int(n_samples * 0.70)      # 70% from real dataset distributions
-    n_synthetic = n_samples - n_real    # 30% high-conflict augmentation
 
-    for _ in range(n_real):
-        # Sample from real distributions
-        n_row = nasa.sample(1).iloc[0]
-        m_row = mooc.sample(1).iloc[0]
-        ms_row = mouse.sample(1).iloc[0] if not mouse.empty else {'motor_var': 0.1, 'rt_mean': 500}
-        
-        # Construct feature vector based on reported architecture
-        # X = [I_t, D_t, F_t, ECN_t, A_t, delta_I_t, delta_D_t]
-        
-        # Map real metrics to latent state variables:
-        # Instability (I_t) <- frustration + motor_var + rt_mean (normalized)
-        I_t = (n_row['s_frustration'] + ms_row['motor_var']/100.0 + ms_row['rt_mean']/2000.0) / 3.0
-        
-        # Drift (D_t) <- (1 - click_through_rate)
-        D_t = 1.0 - m_row['click_through_rate']
-        
-        # Fatigue (F_t) <- s_effort + normalized_duration
-        F_t = (n_row['s_effort'] + m_row['normalized_duration']) / 2.0
-        
-        X.append([I_t, D_t, F_t, 1.0 - F_t, I_t - (1.0 - F_t), 0, 0])
-        
-        # Label: aligned with StateEngine.detect_breakdown() logic
-        label = 1 if (I_t > 0.5) or (D_t > 0.75) or (F_t > 0.6 and I_t > 0.4) else 0
-        y.append(label)
-
-    # Augment with synthetic high-conflict sessions covering StateEngine's real output range
-    # StateEngine can produce I_t up to ~2.0 during heavy tab-switching (switch_rate=1.5, motor_var=1.2)
     np.random.seed(42)
-    for _ in range(n_synthetic):
-        scenario = np.random.choice(['focus', 'conflict', 'drift', 'fatigue'], p=[0.25, 0.35, 0.25, 0.15])
-        if scenario == 'focus':
-            I_t = np.random.uniform(0.0, 0.3)
-            D_t = np.random.uniform(0.0, 0.3)
-            F_t = np.random.uniform(0.0, 0.4)
-            label = 0
-        elif scenario == 'conflict':    # High tab-switching — mirrors StateEngine Phase 2
-            I_t = np.random.uniform(1.0, 2.0)
-            D_t = np.random.uniform(0.0, 0.3)
-            F_t = np.random.uniform(0.3, 0.7)
-            label = 1
-        elif scenario == 'drift':
-            I_t = np.random.uniform(0.1, 0.5)
-            D_t = np.random.uniform(0.75, 1.0)
-            F_t = np.random.uniform(0.2, 0.6)
-            label = 1
-        else:  # fatigue
-            I_t = np.random.uniform(0.4, 0.7)
-            D_t = np.random.uniform(0.3, 0.7)
-            F_t = np.random.uniform(0.6, 0.9)
-            label = 1
-        
-        delta_I = np.random.uniform(-0.2, 0.2) if scenario != 'conflict' else np.random.uniform(0.8, 1.6)
-        delta_D = np.random.uniform(-0.1, 0.1)
-        ECN_t = np.clip(1.0 - I_t * 0.3 - F_t * 0.2, 0, 1)
-        A_t = max(0, I_t - ECN_t) if scenario == 'conflict' else 0.0
-        
-        X.append([I_t, D_t, F_t, ECN_t, A_t, delta_I, delta_D])
-        y.append(label)
-        
 
-    final_df = pd.DataFrame(X, columns=['I_t', 'D_t', 'F_t', 'ECN_t', 'A_t', 'delta_I', 'delta_D'])
+    n_sessions   = 400    # number of simulated sessions
+    session_len  = 10     # timesteps per session (10 × 5s = 50s window)
+    # Scenario split: 25% focused, 35% high-conflict, 25% drift, 15% fatigue
+    scenarios    = np.random.choice(
+        ['focus', 'conflict', 'drift', 'fatigue'],
+        size=n_sessions, p=[0.25, 0.35, 0.25, 0.15]
+    )
+
+    X, y = [], []
+
+    for scenario in scenarios:
+        # Sample a base row from real datasets for this session
+        n_row  = nasa.sample(1).iloc[0]
+        m_row  = mooc.sample(1).iloc[0]
+        ms_row = mouse.sample(1).iloc[0] if not mouse.empty else \
+                 pd.Series({'motor_var': 0.1, 'rt_mean': 500})
+
+        # Base values derived from real data
+        base_I = (n_row['s_frustration'] + ms_row['motor_var'] / 100.0 +
+                  ms_row['rt_mean'] / 2000.0) / 3.0
+        base_D = 1.0 - m_row['click_through_rate']
+        base_F = (n_row['s_effort'] + m_row['normalized_duration']) / 2.0
+
+        # Apply scenario-specific offsets to cover StateEngine's real output range
+        if scenario == 'focus':
+            I_base = np.clip(base_I * 0.3, 0.0, 0.3)
+            D_base = np.clip(base_D * 0.4, 0.0, 0.3)
+            F_base = np.clip(base_F * 0.5, 0.0, 0.4)
+            I_drift_rate = np.random.uniform(-0.01, 0.01)
+            D_drift_rate = np.random.uniform(-0.01, 0.01)
+
+        elif scenario == 'conflict':   # Tab-switching — I_t up to 2.0
+            I_base = np.random.uniform(0.8, 1.4)
+            D_base = np.clip(base_D * 0.3, 0.0, 0.3)
+            F_base = np.clip(base_F, 0.3, 0.7)
+            I_drift_rate = np.random.uniform(0.05, 0.15)   # escalating instability
+            D_drift_rate = np.random.uniform(-0.01, 0.02)
+
+        elif scenario == 'drift':      # Zoning out — D_t up to 0.95
+            I_base = np.clip(base_I * 0.5, 0.0, 0.4)
+            D_base = np.random.uniform(0.55, 0.80)
+            F_base = np.clip(base_F, 0.2, 0.6)
+            I_drift_rate = np.random.uniform(-0.005, 0.005)
+            D_drift_rate = np.random.uniform(0.01, 0.04)    # drift rising
+
+        else:  # fatigue
+            I_base = np.clip(base_I * 0.8, 0.2, 0.6)
+            D_base = np.clip(base_D * 0.6, 0.2, 0.6)
+            F_base = np.random.uniform(0.55, 0.85)
+            I_drift_rate = np.random.uniform(0.01, 0.03)
+            D_drift_rate = np.random.uniform(0.005, 0.02)
+
+        prev_I, prev_D = I_base, D_base
+        A_t = 0.0   # drift-diffusion accumulator
+
+        for t in range(session_len):
+            # Evolve features naturally across timesteps
+            noise_I = np.random.normal(0, 0.02)
+            noise_D = np.random.normal(0, 0.015)
+            I_t = np.clip(prev_I + I_drift_rate + noise_I, 0.0, 2.0)
+            D_t = np.clip(prev_D + D_drift_rate + noise_D, 0.0, 1.0)
+            F_t = np.clip(F_base + t * 0.008, 0.0, 1.0)  # fatigue rises with time
+
+            # Real temporal deltas
+            delta_I = I_t - prev_I
+            delta_D = D_t - prev_D
+
+            # ECN and accumulator
+            ECN_t = float(np.clip(1.0 - I_t * 0.3 - F_t * 0.2, 0.0, 1.0))
+            A_t   = float(max(0.0, A_t + I_t - ECN_t))
+
+            # Label aligned with StateEngine.detect_breakdown()
+            label = 1 if (A_t > 1.0) or (I_t > 0.7) or (D_t > 0.75) or \
+                         (F_t > 0.8) else 0
+
+            X.append([I_t, D_t, F_t, ECN_t, A_t, delta_I, delta_D])
+            y.append(label)
+
+            prev_I, prev_D = I_t, D_t
+
+    final_df = pd.DataFrame(X, columns=['I_t', 'D_t', 'F_t', 'ECN_t',
+                                        'A_t', 'delta_I', 'delta_D'])
     final_df['label'] = y
     final_df.to_csv(output_file, index=False)
+
+    pos = int(sum(y))
     print(f"Merged training data saved to {output_file}")
+    print(f"  {len(y)} samples | {pos} positive ({pos/len(y):.1%}) | "
+          f"delta_I range: [{min(r[5] for r in X):.3f}, {max(r[5] for r in X):.3f}]")
 
 if __name__ == "__main__":
+
     nasa_path = 'data/raw/nasa_tlx/mimbcd_uta4/dataset/main_sheet_nasatlx.csv'
     mooc_path = 'data/raw/mooc/unzipped/interactions.csv'
     mouse_dir = 'data/raw/mouse_tracking/vz5sy_unzipped/mt_data/'
