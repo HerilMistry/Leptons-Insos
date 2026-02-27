@@ -1,66 +1,54 @@
 import numpy as np
 import sys
 import os
+import json
 
 # Add project root to path
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
-from cortex_core.logic import StateEngine
-from cortex_core.predictor import CortexPredictor, BayesianAdapter
+from cortex_core.engine import CortexEngine
 
 def simulate_session():
     print("--- Starting Advanced CortexFlow Verification ---")
-    engine = StateEngine()
-    predictor = CortexPredictor(model_path='models/baseline_model.joblib')
-    adapter = BayesianAdapter(predictor)
-
-    prev_state = None  # Track previous state for delta_I, delta_D computation
+    
+    # Use the unified engine
+    engine = CortexEngine(model_path='models/baseline_model.joblib')
 
     # 1. Simulate Focus Block
     print("\nPhase 1: Focused Work")
     for i in range(3):
-        telemetry = {'switch_rate': 0.1, 'motor_var': 0.05, 'distractor_attempts': 0,
-                     'idle_ratio': 0.05, 'task_eng': 1.0, 'is_idle': 0}
-        engine.update_latent_states(telemetry, i * 5)
-        engine.update_temporal_dynamics(1.0, 0, 1, 0.1)
-        is_breakdown, A_t = engine.detect_breakdown()
+        telemetry = {
+            'switch_rate': 0.1, 
+            'motor_var': 0.05, 
+            'distractor_attempts': 0,
+            'idle_ratio': 0.05, 
+            'scroll_entropy': 0.1,
+            'passive_playback': 0.0
+        }
+        
+        result = engine.infer(telemetry, session_duration_sec=i * 5)
+        print(f"t={i*5}s | Risk: {result['risk']:.2f} | B-Prob: {result['breakdown_probability']:.2f} | Imminent: {result['breakdown_imminent']}")
 
-        state = {'I_t': engine.I_t, 'D_t': engine.D_t, 'F_t': engine.F_t,
-                 'ECN_t': engine.ECN_t, 'A_t': engine.A_t}
-        x_vec = predictor.construct_feature_vector(state, previous_state=prev_state)
-        prob = predictor.predict_breakdown_prob(x_vec)
-
-        print(f"t={i*5}s | Risk: {engine.get_attention_risk():.2f} | B-Prob: {prob:.2f} | Breakdown: {is_breakdown}")
-
-        # User feedback: No breakdown occurred (correct)
-        adapter.record_feedback(x_vec, 0)
-        prev_state = state  # advance temporal window
+        # User feedback: everything is stable
+        engine.adapter.record_feedback(engine.predictor.construct_feature_vector(telemetry, i*5), 0)
 
     # 2. Simulate Distraction / High Conflict
     print("\nPhase 2: High Conflict (Tab Switching)")
     for i in range(3, 8):
-        telemetry = {'switch_rate': 1.5, 'motor_var': 1.2, 'distractor_attempts': 3,
-                     'idle_ratio': 0.1, 'task_eng': 0.5, 'is_idle': 0}
-        engine.update_latent_states(telemetry, i * 5)
-        engine.update_temporal_dynamics(0.5, 0, 1, 1.5)
-        is_breakdown, A_t = engine.detect_breakdown()
+        telemetry = {
+            'switch_rate': 1.5, 
+            'motor_var': 1.2, 
+            'distractor_attempts': 3,
+            'idle_ratio': 0.1,
+            'scroll_entropy': 0.1,
+            'passive_playback': 0.0
+        }
+        
+        result = engine.infer(telemetry, session_duration_sec=i * 5, switch_pressure=1.5)
+        print(f"t={i*5}s | Risk: {result['risk']:.2f} | B-Prob: {result['breakdown_probability']:.2f} | Imminent: {result['breakdown_imminent']}")
 
-        state = {'I_t': engine.I_t, 'D_t': engine.D_t, 'F_t': engine.F_t,
-                 'ECN_t': engine.ECN_t, 'A_t': engine.A_t}
-        x_vec = predictor.construct_feature_vector(state, previous_state=prev_state)
-        prob = predictor.predict_breakdown_prob(x_vec)
-
-        print(f"t={i*5}s | Risk: {engine.get_attention_risk():.2f} | B-Prob: {prob:.2f} | Breakdown: {is_breakdown}")
-
-        if prob > 0.3:  # Lowered threshold so SHAP attribution is shown in verification
-            explanation = predictor.explain_prediction(x_vec)
-            top_feature = list(explanation.keys())[0]
-            top_val = explanation[top_feature]
-            print(f"  [EXPLAIN]: Primary risk factor → {top_feature} (contribution: {top_val:+.3f})")
-
-        # User feedback: distracted if breakdown detected
-        adapter.record_feedback(x_vec, 1 if is_breakdown else 0)
-        prev_state = state  # advance temporal window
+        # User feedback: breakdown occurred if imminent
+        engine.adapter.record_feedback(engine.predictor.construct_feature_vector(telemetry, i*5), 1 if result['breakdown_imminent'] else 0)
 
     print("\n--- Verification Complete ---")
 

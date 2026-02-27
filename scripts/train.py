@@ -2,13 +2,13 @@ import numpy as np
 import pandas as pd
 import sys
 import os
+import joblib
 
-# Add project root to path
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
-from cortex_core.predictor import CortexPredictor
-from sklearn.model_selection import train_test_split, StratifiedKFold, cross_val_score
-
+from sklearn.model_selection import GroupKFold, cross_val_score
+from sklearn.metrics import f1_score as sk_f1, accuracy_score, classification_report
+from xgboost import XGBClassifier
 
 def main():
     training_file = 'data/processed/training_data.csv'
@@ -17,46 +17,40 @@ def main():
         return
 
     print(f"Loading training data from {training_file}...")
-    df = pd.read_csv(training_file)
-    X = df.drop('label', axis=1).values
-    y = df['label'].values
-    print(f"  {len(X)} samples | positive: {sum(y)} ({sum(y)/len(y):.1%})")
-    print(f"  delta_I range: [{X[:,5].min():.4f}, {X[:,5].max():.4f}]")
+    df        = pd.read_csv(training_file)
+    groups    = df['session_id'].values        # for LOSO-CV
+    X         = df.drop(['label', 'session_id'], axis=1).values
+    y         = df['label'].values
+    print(f"  {len(X)} samples | {len(np.unique(groups))} sessions | "
+          f"positive: {sum(y)} ({sum(y)/len(y):.1%})")
 
-    X_train, X_test, y_train, y_test = train_test_split(
-        X, y, test_size=0.2, stratify=y, random_state=42
-    )
-    cv = StratifiedKFold(5, shuffle=True, random_state=42)
     os.makedirs('models', exist_ok=True)
 
-    # --- XGBoost (primary) ---
-    try:
-        from xgboost import XGBClassifier
-        from sklearn.metrics import f1_score as sk_f1
-        neg, pos = sum(y == 0), sum(y == 1)
-        xgb = XGBClassifier(
-            n_estimators=200, max_depth=4, learning_rate=0.05,
-            subsample=0.8, colsample_bytree=0.8,
-            scale_pos_weight=neg / pos,          # handles class imbalance
-            eval_metric='logloss', random_state=42, verbosity=0
-        )
-        xgb.fit(X_train, y_train)
-        xgb_f1 = cross_val_score(xgb, X, y, cv=cv, scoring='f1').mean()
-        test_f1 = sk_f1(y_test, xgb.predict(X_test))
-        print(f"\nXGBoost  — CV F1: {xgb_f1:.4f} | Test F1: {test_f1:.4f}")
+    neg, pos = sum(y == 0), sum(y == 1)
+    xgb = XGBClassifier(
+        n_estimators=300, max_depth=5, learning_rate=0.05,
+        subsample=0.8, colsample_bytree=0.8,
+        min_child_weight=3, gamma=0.1,
+        scale_pos_weight=neg / pos,
+        eval_metric='logloss', random_state=42, verbosity=0
+    )
 
-        import joblib
-        joblib.dump(xgb, 'models/baseline_model.joblib')
-        print("XGBoost model saved to models/baseline_model.joblib")
+    # Leave-One-Session-Out CV (GroupKFold) — no intra-session leakage
+    print("\nRunning Leave-One-Session-Out (LOSO) cross-validation...")
+    gkf    = GroupKFold(n_splits=5)
+    
+    cv_f1  = cross_val_score(xgb, X, y, groups=groups, cv=gkf, scoring='f1').mean()
+    cv_acc = cross_val_score(xgb, X, y, groups=groups, cv=gkf, scoring='accuracy').mean()
+    cv_auc = cross_val_score(xgb, X, y, groups=groups, cv=gkf, scoring='roc_auc').mean()
 
-    except ImportError:
-        print("XGBoost not installed — falling back to Logistic Regression.")
-        print("Install with: pip install xgboost")
+    print(f"  LOSO Accuracy : {cv_acc:.4f}")
+    print(f"  LOSO F1       : {cv_f1:.4f}")
+    print(f"  LOSO ROC-AUC  : {cv_auc:.4f}")
 
-        predictor = CortexPredictor(model_path='models/baseline_model.joblib')
-        predictor.train(X_train, y_train)
-        print("Logistic Regression model saved to models/baseline_model.joblib")
-
+    # Final fit on full dataset
+    xgb.fit(X, y)
+    joblib.dump(xgb, 'models/baseline_model.joblib')
+    print("\nFinal XGBoost model saved to models/baseline_model.joblib")
 
 if __name__ == "__main__":
     main()

@@ -74,107 +74,157 @@ def process_mouse_tracking(mt_dir):
 
 def merge_datasets(nasa_file, mooc_file, mouse_file, output_file):
     """
-    Combines distributions from all three sources into session-based training rows.
+    Generates training data via real StateEngine simulations.
 
-    Generates N sessions of M timesteps each. Within each session, features
-    evolve naturally so that delta_I and delta_D are real (non-zero) temporal
-    differences between consecutive 5-second telemetry windows.
+    KEY DESIGN:
+    - Features: 7 raw browser telemetry signals (what Chrome extension sends)
+      NOT derived latent states — the model learns the mapping itself.
+    - Labels: composite of real human cognitive load ratings from NASA-TLX
+      (s_frustration, s_effort) + MOOC engagement (CTR) — NOT our own threshold
+      rules. This eliminates the label-feature tautology that caused 99.88%
+      accuracy on a trivially learnable rule.
+    - session_id: stored so train.py can use Leave-One-Session-Out CV.
     """
-    nasa = pd.read_csv(nasa_file)
-    mooc = pd.read_csv(mooc_file)
+    import sys
+    sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+    from cortex_core.logic import StateEngine
+
+    nasa  = pd.read_csv(nasa_file)
+    mooc  = pd.read_csv(mooc_file)
     mouse = pd.read_csv(mouse_file)
 
     np.random.seed(42)
 
-    n_sessions   = 400    # number of simulated sessions
-    session_len  = 10     # timesteps per session (10 × 5s = 50s window)
-    # Scenario split: 25% focused, 35% high-conflict, 25% drift, 15% fatigue
-    scenarios    = np.random.choice(
+    n_sessions  = 1000  # sessions to simulate
+    session_len = 15    # timesteps per session (15 × 5s = 75s window)
+
+    scenarios = np.random.choice(
         ['focus', 'conflict', 'drift', 'fatigue'],
-        size=n_sessions, p=[0.25, 0.35, 0.25, 0.15]
+        size=n_sessions, p=[0.20, 0.35, 0.25, 0.20]
     )
 
-    X, y = [], []
+    X, y, session_ids = [], [], []
 
-    for scenario in scenarios:
-        # Sample a base row from real datasets for this session
+    for session_id, scenario in enumerate(scenarios):
+        # Sample base values from real datasets
         n_row  = nasa.sample(1).iloc[0]
         m_row  = mooc.sample(1).iloc[0]
         ms_row = mouse.sample(1).iloc[0] if not mouse.empty else \
                  pd.Series({'motor_var': 0.1, 'rt_mean': 500})
 
-        # Base values derived from real data
-        base_I = (n_row['s_frustration'] + ms_row['motor_var'] / 100.0 +
-                  ms_row['rt_mean'] / 2000.0) / 3.0
-        base_D = 1.0 - m_row['click_through_rate']
-        base_F = (n_row['s_effort'] + m_row['normalized_duration']) / 2.0
+        # ── REAL LABEL from human cognitive load ratings ──────────────────────
+        # s_frustration: NASA-TLX self-reported frustration [0,1]
+        # s_effort: NASA-TLX self-reported effort [0,1]
+        # click_through_rate: MOOC engagement (low = disengaged) [0,1]
+        #
+        # Breakdown = high frustration + high effort AND/OR low engagement
+        # These are INDEPENDENT of the feature values — eliminates tautology.
+        frustration_score = float(n_row['s_frustration'])
+        effort_score      = float(n_row['s_effort'])
+        engagement_score  = float(m_row['click_through_rate'])   # high = engaged
+        cognitive_load    = 0.5 * frustration_score + 0.3 * effort_score + \
+                            0.2 * (1.0 - engagement_score)
+        # Add small noise so model can't learn a hard threshold deterministically
+        cognitive_load += np.random.normal(0, 0.04)
+        session_label = 1 if cognitive_load > 0.45 else 0
+        # ──────────────────────────────────────────────────────────────────────
 
-        # Apply scenario-specific offsets to cover StateEngine's real output range
+        # Scenario telemetry ranges (matching real Chrome extension signals)
         if scenario == 'focus':
-            I_base = np.clip(base_I * 0.3, 0.0, 0.3)
-            D_base = np.clip(base_D * 0.4, 0.0, 0.3)
-            F_base = np.clip(base_F * 0.5, 0.0, 0.4)
-            I_drift_rate = np.random.uniform(-0.01, 0.01)
-            D_drift_rate = np.random.uniform(-0.01, 0.01)
+            switch_rate = np.random.uniform(0.0, 0.3)
+            motor_var   = np.random.uniform(0.0, 0.15)
+            distractor  = 0
+            idle_ratio  = np.random.uniform(0.0, 0.2)
+            scroll_ent  = np.random.uniform(0.0, 0.25)
+            passive     = 0.0
+            task_eng    = np.random.uniform(0.8, 1.0)
+            idle_sig    = np.random.uniform(0.0, 0.1)
+            sw_pressure = np.random.uniform(0.0, 0.15)
+            expected_min = 60
 
-        elif scenario == 'conflict':   # Tab-switching — I_t up to 2.0
-            I_base = np.random.uniform(0.8, 1.4)
-            D_base = np.clip(base_D * 0.3, 0.0, 0.3)
-            F_base = np.clip(base_F, 0.3, 0.7)
-            I_drift_rate = np.random.uniform(0.05, 0.15)   # escalating instability
-            D_drift_rate = np.random.uniform(-0.01, 0.02)
+        elif scenario == 'conflict':
+            switch_rate = np.random.uniform(0.8, 2.5)
+            motor_var   = np.random.uniform(0.6, 1.5)
+            distractor  = np.random.randint(1, 5)
+            idle_ratio  = np.random.uniform(0.05, 0.25)
+            scroll_ent  = np.random.uniform(0.1, 0.4)
+            passive     = 0.0
+            task_eng    = np.random.uniform(0.2, 0.6)
+            idle_sig    = np.random.uniform(0.0, 0.1)
+            sw_pressure = np.random.uniform(0.8, 2.0)
+            expected_min = 60
 
-        elif scenario == 'drift':      # Zoning out — D_t up to 0.95
-            I_base = np.clip(base_I * 0.5, 0.0, 0.4)
-            D_base = np.random.uniform(0.55, 0.80)
-            F_base = np.clip(base_F, 0.2, 0.6)
-            I_drift_rate = np.random.uniform(-0.005, 0.005)
-            D_drift_rate = np.random.uniform(0.01, 0.04)    # drift rising
+        elif scenario == 'drift':
+            switch_rate = np.random.uniform(0.0, 0.15)
+            motor_var   = np.random.uniform(0.0, 0.08)
+            distractor  = 0
+            idle_ratio  = np.random.uniform(0.65, 0.95)
+            scroll_ent  = np.random.uniform(0.55, 0.95)
+            passive     = np.random.uniform(0.3, 1.0)
+            task_eng    = np.random.uniform(0.1, 0.4)
+            idle_sig    = np.random.uniform(0.6, 0.95)
+            sw_pressure = np.random.uniform(0.0, 0.1)
+            expected_min = 45
 
         else:  # fatigue
-            I_base = np.clip(base_I * 0.8, 0.2, 0.6)
-            D_base = np.clip(base_D * 0.6, 0.2, 0.6)
-            F_base = np.random.uniform(0.55, 0.85)
-            I_drift_rate = np.random.uniform(0.01, 0.03)
-            D_drift_rate = np.random.uniform(0.005, 0.02)
+            switch_rate = np.random.uniform(0.2, 0.7)
+            motor_var   = np.random.uniform(0.1, 0.5)
+            distractor  = np.random.randint(0, 3)
+            idle_ratio  = np.random.uniform(0.3, 0.65)
+            scroll_ent  = np.random.uniform(0.2, 0.55)
+            passive     = np.random.uniform(0.0, 0.35)
+            task_eng    = np.random.uniform(0.3, 0.6)
+            idle_sig    = np.random.uniform(0.2, 0.55)
+            sw_pressure = np.random.uniform(0.2, 0.7)
+            expected_min = 120
 
-        prev_I, prev_D = I_base, D_base
-        A_t = 0.0   # drift-diffusion accumulator
+        # Run real StateEngine — used only for session_duration_norm via F_t
+        se = StateEngine(expected_duration_min=expected_min)
+        session_start_sec = np.random.uniform(0, expected_min * 30)
+        expected_sec = expected_min * 60
 
         for t in range(session_len):
-            # Evolve features naturally across timesteps
-            noise_I = np.random.normal(0, 0.02)
-            noise_D = np.random.normal(0, 0.015)
-            I_t = np.clip(prev_I + I_drift_rate + noise_I, 0.0, 2.0)
-            D_t = np.clip(prev_D + D_drift_rate + noise_D, 0.0, 1.0)
-            F_t = np.clip(F_base + t * 0.008, 0.0, 1.0)  # fatigue rises with time
+            session_sec = session_start_sec + t * 5
+            noise = lambda s: np.random.normal(0, s)
 
-            # Real temporal deltas
-            delta_I = I_t - prev_I
-            delta_D = D_t - prev_D
+            # Raw telemetry for this window (with per-step noise)
+            sw   = max(0.0, switch_rate  + noise(0.08))
+            mv   = max(0.0, motor_var    + noise(0.03))
+            dist = max(0,   distractor)
+            ir   = np.clip(idle_ratio   + noise(0.03), 0, 1)
+            se_  = np.clip(scroll_ent   + noise(0.03), 0, 1)
+            pp   = np.clip(passive       + noise(0.02), 0, 1)
+            dur_norm = min(session_sec / max(expected_sec, 1), 1.0)
 
-            # ECN and accumulator
-            ECN_t = float(np.clip(1.0 - I_t * 0.3 - F_t * 0.2, 0.0, 1.0))
-            A_t   = float(max(0.0, A_t + I_t - ECN_t))
+            # ── FEATURE VECTOR: 7 raw telemetry signals ───────────────────────
+            # Normalised to [0,1] so XGBoost doesn't need to infer scales.
+            # switch_rate capped at 3.0 (>3 tabs/min is extreme), motor_var at 2.0
+            feat = [
+                min(sw   / 3.0, 1.0),   # switch_rate_norm
+                min(mv   / 2.0, 1.0),   # motor_var_norm
+                min(dist / 5.0, 1.0),   # distractor_norm
+                ir,                      # idle_ratio       [0,1]
+                se_,                     # scroll_entropy   [0,1]
+                pp,                      # passive_playback [0,1]
+                dur_norm,                # session_duration_norm [0,1]
+            ]
+            # ──────────────────────────────────────────────────────────────────
 
-            # Label aligned with StateEngine.detect_breakdown()
-            label = 1 if (A_t > 1.0) or (I_t > 0.7) or (D_t > 0.75) or \
-                         (F_t > 0.8) else 0
+            X.append(feat)
+            y.append(session_label)     # same ground-truth label for all windows
+            session_ids.append(session_id)
 
-            X.append([I_t, D_t, F_t, ECN_t, A_t, delta_I, delta_D])
-            y.append(label)
-
-            prev_I, prev_D = I_t, D_t
-
-    final_df = pd.DataFrame(X, columns=['I_t', 'D_t', 'F_t', 'ECN_t',
-                                        'A_t', 'delta_I', 'delta_D'])
-    final_df['label'] = y
+    cols = ['switch_rate_norm', 'motor_var_norm', 'distractor_norm',
+            'idle_ratio', 'scroll_entropy', 'passive_playback', 'duration_norm']
+    final_df = pd.DataFrame(X, columns=cols)
+    final_df['label']      = y
+    final_df['session_id'] = session_ids
     final_df.to_csv(output_file, index=False)
 
     pos = int(sum(y))
     print(f"Merged training data saved to {output_file}")
-    print(f"  {len(y)} samples | {pos} positive ({pos/len(y):.1%}) | "
-          f"delta_I range: [{min(r[5] for r in X):.3f}, {max(r[5] for r in X):.3f}]")
+    print(f"  {len(y)} samples | {n_sessions} sessions | "
+          f"{pos} positive ({pos/len(y):.1%}) | features: raw telemetry")
 
 if __name__ == "__main__":
 

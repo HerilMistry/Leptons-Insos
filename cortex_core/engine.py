@@ -45,6 +45,28 @@ class CortexEngine:
         self.adapter = BayesianAdapter(self.predictor)
         self._previous_state = None
 
+    def _validate_telemetry(self, telemetry: dict) -> dict:
+        """
+        Validates and clamps telemetry values to safe ranges.
+        Missing keys default to 0. Prevents out-of-range inputs from
+        producing garbage feature vectors.
+        """
+        defaults = {
+            'switch_rate': 0.0, 'motor_var': 0.0,
+            'distractor_attempts': 0, 'idle_ratio': 0.0,
+            'scroll_entropy': 0.0, 'passive_playback': 0.0,
+        }
+        validated = {k: telemetry.get(k, v) for k, v in defaults.items()}
+
+        # Clamp to physically meaningful ranges
+        validated['switch_rate']          = max(0.0, min(float(validated['switch_rate']), 10.0))
+        validated['motor_var']            = max(0.0, min(float(validated['motor_var']), 5.0))
+        validated['distractor_attempts']  = max(0,   min(int(validated['distractor_attempts']), 20))
+        validated['idle_ratio']           = max(0.0, min(float(validated['idle_ratio']), 1.0))
+        validated['scroll_entropy']       = max(0.0, min(float(validated['scroll_entropy']), 1.0))
+        validated['passive_playback']     = max(0.0, min(float(validated['passive_playback']), 1.0))
+        return validated
+
     def infer(self, telemetry: dict, session_duration_sec: float,
               task_engagement: float = 1.0, idle_signal: float = 0.0,
               switch_pressure: float = 0.0) -> dict:
@@ -90,6 +112,9 @@ class CortexEngine:
                 }
             }
         """
+        # Validate and clamp telemetry before processing
+        telemetry = self._validate_telemetry(telemetry)
+
         # 1. Update latent state variables from telemetry
         self.state_engine.update_latent_states(telemetry, session_duration_sec)
 
@@ -113,17 +138,20 @@ class CortexEngine:
             'A_t': float(self.state_engine.A_t),
         }
 
-        # 5. Construct feature vector (with temporal deltas)
+        # 5. Construct feature vector from raw telemetry (matches training features)
         x_vec = self.predictor.construct_feature_vector(
-            current_state, previous_state=self._previous_state
+            telemetry,
+            session_duration_sec=session_duration_sec,
+            expected_duration_sec=float(self.state_engine.expected_duration),
         )
 
         # 6. Predict breakdown probability
         breakdown_prob = float(self.predictor.predict_breakdown_prob(x_vec))
 
-        # 7. SHAP-style feature attribution
-        feature_names = ['instability', 'drift', 'fatigue', 'ECN',
-                         'conflict', 'delta_instability', 'delta_drift']
+        # 7. SHAP-style feature attribution — raw signal names
+        feature_names = ['switch_rate', 'motor_var', 'distractor_attempts',
+                         'idle_ratio', 'scroll_entropy', 'passive_playback',
+                         'session_duration']
         raw_attribution = self.predictor.explain_prediction(x_vec, feature_names)
 
         # Return top 3 contributors (matching API spec style)

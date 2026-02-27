@@ -11,15 +11,39 @@ class CortexPredictor:
         if model_path and os.path.exists(model_path):
             self.load_model(model_path)
 
-    def construct_feature_vector(self, current_state, previous_state=None):
-        I_t = current_state.get('I_t', 0)
-        D_t = current_state.get('D_t', 0)
-        F_t = current_state.get('F_t', 0)
-        ECN_t = current_state.get('ECN_t', 0)
-        A_t = current_state.get('A_t', 0)
-        delta_I = I_t - previous_state.get('I_t', 0) if previous_state else 0
-        delta_D = D_t - previous_state.get('D_t', 0) if previous_state else 0
-        return np.array([I_t, D_t, F_t, ECN_t, A_t, delta_I, delta_D]).reshape(1, -1)
+    def construct_feature_vector(self, telemetry: dict,
+                                  session_duration_sec: float = 0.0,
+                                  expected_duration_sec: float = 3600.0,
+                                  previous_state=None):
+        """
+        Builds the 7-feature raw telemetry vector fed to the ML model.
+
+        Features match exactly what was used during training (preprocess.py):
+        [switch_rate_norm, motor_var_norm, distractor_norm, idle_ratio,
+         scroll_entropy, passive_playback, duration_norm]
+
+        All values normalised to [0,1]. previous_state kept for API
+        compatibility with BayesianAdapter but not used (delta signals
+        are captured implicitly by the session_duration progression).
+        """
+        sw       = float(telemetry.get('switch_rate', 0))
+        mv       = float(telemetry.get('motor_var', 0))
+        dist     = float(telemetry.get('distractor_attempts', 0))
+        ir       = float(telemetry.get('idle_ratio', 0))
+        se       = float(telemetry.get('scroll_entropy', 0))
+        pp       = float(telemetry.get('passive_playback', 0))
+        dur_norm = min(session_duration_sec / max(expected_duration_sec, 1.0), 1.0)
+
+        feat = np.array([
+            min(sw   / 3.0, 1.0),   # switch_rate_norm
+            min(mv   / 2.0, 1.0),   # motor_var_norm
+            min(dist / 5.0, 1.0),   # distractor_norm
+            np.clip(ir, 0.0, 1.0),  # idle_ratio
+            np.clip(se, 0.0, 1.0),  # scroll_entropy
+            np.clip(pp, 0.0, 1.0),  # passive_playback
+            dur_norm,               # session_duration_norm
+        ])
+        return feat.reshape(1, -1)
 
     def predict_breakdown_prob(self, feature_vector):
         if not self.is_trained:
