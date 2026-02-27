@@ -1,7 +1,26 @@
 // ============================================================
 // CortexFlow — Telemetry Collector (Content Script)
 // ============================================================
-// Collects behavioural metrics every 5 seconds and sends them
+
+// ── ONE-TIME SELF-RELOAD TRIGGER ──────────────────────────
+// Fires once on the first page navigation after the extension files were
+// updated on disk.  Uses a chrome.storage flag to avoid a reload loop.
+// This block is removed automatically after reload (by clearing the flag).
+;(function cortexflowBootReload() {
+  try {
+    chrome.storage.local.get("__cf_boot_reload", ({ __cf_boot_reload }) => {
+      if (!__cf_boot_reload) {
+        chrome.storage.local.set({ __cf_boot_reload: true }, () => {
+          console.log("[CortexFlow] Auto-reloading extension to apply updates…");
+          setTimeout(() => chrome.runtime.reload(), 300);
+        });
+      }
+    });
+  } catch { /* extension context already invalidated — skip */ }
+})();
+
+// ── END RELOAD TRIGGER ─────────────────────────────────────
+
 // to the background service worker, which enriches them with
 // tab_switch_count and forwards to the backend API.
 //
@@ -147,11 +166,12 @@
 
     const features = {
       switch_rate: 0,                              // placeholder; background.js injects real value
-      idle_density: computeIdleDensity(interval),
-      scroll_reversal_ratio: computeScrollReversalRatio(),
+      motor_var: computeMouseVelocityVariance(),
+      distractor_attempts: 0,                      // extension cannot detect this directly
+      idle_ratio: computeIdleDensity(interval),
+      scroll_entropy: computeScrollReversalRatio(),
+      passive_playback: hasBackgroundPlayback(),
       typing_interval_var: computeTypingIntervalVariance(),
-      mouse_velocity_var: computeMouseVelocityVariance(),
-      background_playback_flag: hasBackgroundPlayback(),
       rewind_frequency: parseFloat((rewindCount / (interval / 1000)).toFixed(4)),
       task_type: "general" // overridden by session task_type in background.js
     };
@@ -191,3 +211,43 @@
 
   console.log(`[CortexFlow] Telemetry collector active (every ${intervalMs / 1000}s)`);
 })();
+
+// ── postMessage bridge: website → chrome.storage ──────────────────────────────
+// The CortexFlow website runs as a normal webpage (localhost:5173).
+// Normal webpages cannot access chrome.storage directly. This content script
+// IS injected there (matches: <all_urls>), so it acts as a trusted bridge:
+// the website posts CORTEXFLOW_SYNC messages; this listener writes them to
+// chrome.storage.local so the background service worker can read them.
+//
+// Security: we validate the source origin before accepting any message.
+window.addEventListener("message", (event) => {
+  // Only accept messages from localhost dev origins
+  const allowedOrigins = [
+    "http://localhost:5173",
+    "http://localhost:3000",
+    "http://127.0.0.1:5173",
+  ];
+  if (!allowedOrigins.includes(event.origin)) return;
+  if (!event.data || event.data.__cortexflow !== true) return;
+
+  const { action, payload } = event.data;
+
+  if (action === "SET") {
+    chrome.storage.local.set(payload, () => {
+      console.log("[CortexFlow] Storage synced from website:", Object.keys(payload).join(", "));
+    });
+  } else if (action === "REMOVE") {
+    const keys = Array.isArray(payload) ? payload : [payload];
+    chrome.storage.local.remove(keys, () => {
+      console.log("[CortexFlow] Storage cleared from website:", keys.join(", "));
+    });
+  }
+});
+
+// Extension can request the page to re-sync user id (e.g. when popup has no user id).
+chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
+  if (msg.type !== "REQUEST_SYNC") return;
+  window.postMessage({ type: "cortexflow-request-sync" }, window.location.origin);
+  sendResponse({ ok: true });
+  return true;
+});

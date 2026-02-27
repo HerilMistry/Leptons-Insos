@@ -3,6 +3,9 @@
 import os
 import sys
 
+# Add the repo root so that `cortex_core` (sibling of backend/) is importable
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 
 def main():
     """Run administrative tasks."""

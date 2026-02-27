@@ -40,6 +40,16 @@ body {
   letter-spacing: 0.5px;
 }
 
+.cf-username {
+  font-size: 13px;
+  color: #94a3b8;
+  margin-bottom: 8px;
+  padding-left: 2px;
+}
+.cf-username.cf-hidden {
+  display: none;
+}
+
 /* ── Status ─────────────────────────────────────────────── */
 
 .cf-status {
@@ -218,6 +228,20 @@ body {
 }
 
 /* ── Dashboard link ─────────────────────────────────────── */
+
+.cf-btn-sync {
+  width: 100%;
+  margin-bottom: 10px;
+  background: rgba(129, 140, 248, 0.2);
+  color: #a5b4fc;
+  border: 1px solid rgba(129, 140, 248, 0.4);
+}
+.cf-btn-sync:hover:not(:disabled) {
+  background: rgba(129, 140, 248, 0.3);
+}
+.cf-btn-sync.cf-hidden {
+  display: none;
+}
 
 .cf-dashboard-link {
   display: block;

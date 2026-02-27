@@ -21,7 +21,13 @@ def _get_client():
     global _client
     if _client is None:
         uri = os.getenv("MONGO_URI", "mongodb://localhost:27017")
-        _client = MongoClient(uri)
+        # Short timeouts so missing MongoDB doesn't block requests in dev.
+        _client = MongoClient(
+            uri,
+            serverSelectionTimeoutMS=500,
+            connectTimeoutMS=500,
+            socketTimeoutMS=2000,
+        )
     return _client
 
 

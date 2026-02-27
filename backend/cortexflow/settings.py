@@ -119,7 +119,12 @@ STATIC_URL = "static/"
 # DRF
 # ---------------------------------------------------------------------------
 REST_FRAMEWORK = {
+    "DEFAULT_AUTHENTICATION_CLASSES": [
+        "rest_framework_simplejwt.authentication.JWTAuthentication",
+    ],
     "DEFAULT_PERMISSION_CLASSES": [
+        # AllowAny so unauthenticated requests still work (auth endpoints, extension);
+        # individual views that need auth enforce it themselves.
         "rest_framework.permissions.AllowAny",
     ],
 }

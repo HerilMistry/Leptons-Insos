@@ -3,6 +3,52 @@ import { startSession as startSessionApi, stopSession as stopSessionApi } from "
 import type { TaskType, StartSessionRequest } from "@/types/api";
 import { ACTIVE_SESSION_KEY } from "@/utils/constants";
 import { writeLocalSession } from "@/utils/sessionHistory";
+import { useAuthContext } from "@/context/AuthContext";
+
+/** Sync session state into the Chrome extension storage.
+ *  Uses window.postMessage → content script bridge (see content/telemetry.js)
+ *  because the website is a normal webpage and cannot access chrome.storage directly.
+ */
+function syncSessionToExtension(
+  sessionId: string | null,
+  userId: string | null,
+  taskType: string | null
+) {
+  try {
+    if (sessionId) {
+      window.postMessage(
+        {
+          __cortexflow: true,
+          action: "SET",
+          payload: {
+            cortexflow_session_id:     String(sessionId),
+            cortexflow_user_id:        String(userId ?? ""),
+            cortexflow_task_type:      taskType || "general",
+            cortexflow_session_active: true,
+            cortexflow_session_start:  Date.now(),
+          },
+        },
+        window.location.origin
+      );
+    } else {
+      // Session ended — clear session fields (keep user_id)
+      window.postMessage(
+        {
+          __cortexflow: true,
+          action: "SET",
+          payload: { cortexflow_session_id: null, cortexflow_session_active: false },
+        },
+        window.location.origin
+      );
+      window.postMessage(
+        { __cortexflow: true, action: "REMOVE", payload: ["cortexflow_task_type"] },
+        window.location.origin
+      );
+    }
+  } catch {
+    // Not in extension context
+  }
+}
 
 interface ActiveSession {
   id: string;
@@ -30,8 +76,20 @@ function loadStoredSession(): ActiveSession | null {
   }
 }
 
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 export function SessionProvider({ children }: { children: React.ReactNode }) {
-  const [activeSession, setActiveSession] = useState<ActiveSession | null>(loadStoredSession);
+  const { user } = useAuthContext();
+  const [activeSession, setActiveSession] = useState<ActiveSession | null>(() => {
+    const stored = loadStoredSession();
+    // Discard stale mock-mode IDs (e.g. "session-1772229329139") that are not
+    // valid UUIDs — the real backend would reject them with a 500 anyway.
+    if (stored && !UUID_RE.test(stored.id)) {
+      localStorage.removeItem(ACTIVE_SESSION_KEY);
+      return null;
+    }
+    return stored;
+  });
 
   const isSessionActive = !!activeSession;
 
@@ -46,7 +104,10 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
     };
     setActiveSession(session);
     localStorage.setItem(ACTIVE_SESSION_KEY, JSON.stringify(session));
-  }, []);
+
+    // Sync to Chrome extension so telemetry can pick up session immediately
+    syncSessionToExtension(res.session_id, user?.id ?? null, payload.task_type);
+  }, [user]);
 
   const stopSession = useCallback(async () => {
     if (!activeSession) return;
@@ -72,7 +133,10 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
 
     setActiveSession(null);
     localStorage.removeItem(ACTIVE_SESSION_KEY);
-  }, [activeSession]);
+
+    // Tell extension the session ended
+    syncSessionToExtension(null, user?.id ?? null, null);
+  }, [activeSession, user]);
 
   return (
     <SessionContext.Provider value={{ activeSession, isSessionActive, startSession, stopSession }}>

@@ -14,6 +14,7 @@
       <img src="../icons/icon48.png" alt="CortexFlow" class="cf-popup-logo" />
       <h1>CortexFlow</h1>
     </div>
+    <div id="cf-username" class="cf-username cf-hidden"></div>
 
     <!-- Status -->
     <div id="cf-status" class="cf-status cf-status-inactive">
@@ -57,6 +58,11 @@
         <span id="cf-risk-level" class="cf-stat-value">—</span>
       </div>
     </div>
+
+    <!-- Sync from dashboard (shown when not logged in) -->
+    <button id="cf-sync-btn" type="button" class="cf-btn cf-btn-sync cf-hidden">
+      Sync from dashboard
+    </button>
 
     <!-- Dashboard link -->
     <a id="cf-dashboard-link" class="cf-dashboard-link" target="_blank">
