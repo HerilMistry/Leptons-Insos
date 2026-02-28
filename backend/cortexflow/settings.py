@@ -19,7 +19,8 @@ SECRET_KEY = os.environ.get('DJANGO_SECRET_KEY', 'dev-insecure-key-change-in-pro
 DEBUG = os.environ.get('DJANGO_DEBUG', 'False') == 'True'
 
 ALLOWED_HOSTS = os.environ.get(
-    'cortex-flow.onrender.com'
+    'ALLOWED_HOSTS',
+    'localhost,127.0.0.1'
 ).split(',')
 
 # ---------------------------------------------------------------------------
@@ -58,7 +59,8 @@ MIDDLEWARE = [
 # CORS
 # ---------------------------------------------------------------------------
 CORS_ALLOWED_ORIGINS = os.environ.get(
-    'https://leptons-insos.vercel.app'
+    'CORS_ALLOWED_ORIGINS',
+    'http://localhost:5173,http://localhost:3000'
 ).split(',')
 CORS_ALLOW_ALL_ORIGINS = DEBUG  # Only allow all origins in development
 
