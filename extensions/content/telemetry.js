@@ -11,7 +11,6 @@
     chrome.storage.local.get("__cf_boot_reload", ({ __cf_boot_reload }) => {
       if (!__cf_boot_reload) {
         chrome.storage.local.set({ __cf_boot_reload: true }, () => {
-          console.log("[CortexFlow] Auto-reloading extension to apply updates…");
           setTimeout(() => chrome.runtime.reload(), 300);
         });
       }
@@ -298,11 +297,6 @@
       tab_hidden_ratio:      computeTabHiddenRatio(interval)
     };
 
-    // DEBUG — remove before demo
-    console.groupCollapsed("[CortexFlow] Telemetry window");
-    console.table(Object.entries(features).map(([k, v]) => ({ metric: k, value: v })));
-    console.groupEnd();
-
     // Send to background service worker
     try {
       if (!chrome.runtime?.id) return; // extension context invalidated
@@ -348,8 +342,6 @@
 
   const intervalMs = window.CF_CONFIG?.TELEMETRY_INTERVAL_MS || 5000;
   const telemetryInterval = setInterval(collectAndSend, intervalMs);
-
-  console.log(`[CortexFlow] Telemetry collector active (every ${intervalMs / 1000}s)`);
 })();
 
 // ── postMessage bridge: website → chrome.storage ──────────────────────────────
@@ -374,12 +366,10 @@ window.addEventListener("message", (event) => {
 
   if (action === "SET") {
     chrome.storage.local.set(payload, () => {
-      console.log("[CortexFlow] Storage synced from website:", Object.keys(payload).join(", "));
     });
   } else if (action === "REMOVE") {
     const keys = Array.isArray(payload) ? payload : [payload];
     chrome.storage.local.remove(keys, () => {
-      console.log("[CortexFlow] Storage cleared from website:", keys.join(", "));
     });
   }
 });

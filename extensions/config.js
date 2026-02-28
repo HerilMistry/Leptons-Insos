@@ -8,6 +8,9 @@
 const CF_CONFIG = Object.freeze({
 
   // ── Backend API ──────────────────────────────────────────
+  // PRODUCTION: change this to your Render URL before sharing
+  // e.g. "https://cortexflow-api.onrender.com"
+  // LOCAL DEV: use "http://localhost:8000"
   API_BASE_URL: "http://localhost:8000",
 
   // ── Telemetry ────────────────────────────────────────────
@@ -19,7 +22,10 @@ const CF_CONFIG = Object.freeze({
   RISK_DANGER_THRESHOLD: 0.60,          // red orb + intervention banner
 
   // ── Dashboard URL ────────────────────────────────────────
-  DASHBOARD_URL: "http://localhost:5173",  // Vite frontend
+  // PRODUCTION: change this to your Vercel URL before sharing
+  // e.g. "https://cortexflow.vercel.app"
+  // LOCAL DEV: use "http://localhost:5173"
+  DASHBOARD_URL: "http://localhost:5173",
 
   // ── Distractor domains ───────────────────────────────────
   DISTRACTOR_DOMAINS: [

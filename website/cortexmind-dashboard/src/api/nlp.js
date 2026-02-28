@@ -13,7 +13,6 @@ export async function classifyTaskIntent(userInput) {
   const apiKey = import.meta.env.VITE_GROQ_API_KEY;
 
   if (!apiKey || apiKey === "your_groq_api_key_here") {
-    console.warn("[nlp] VITE_GROQ_API_KEY is not set — returning null");
     return null;
   }
 
@@ -61,7 +60,6 @@ The JSON must have exactly these fields:
         : 0.8,
     };
   } catch (err) {
-    console.error("[nlp] classifyTaskIntent failed:", err);
     return null;
   }
 }

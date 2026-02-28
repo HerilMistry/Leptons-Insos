@@ -2,15 +2,12 @@ from datetime import datetime, timezone
 
 from django.contrib.auth import authenticate, get_user_model
 from rest_framework import status
-from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework_simplejwt.tokens import RefreshToken
 
 from api.models import Session
 from api.serializers import (
-    SessionStartRequestSerializer,
-    SessionStartResponseSerializer,
     TelemetryRequestSerializer,
     TelemetryResponseSerializer,
 )
@@ -19,8 +16,9 @@ from mongo.connection import get_model_outputs_collection
 
 User = get_user_model()
 
-# In-memory store for per-session CortexEngine instances.
-# State persists across telemetry calls for the same session.
+# WARNING: This is in-memory state.
+# On Render with multiple workers this will not persist.
+# Must be moved to PostgreSQL or Redis before scaling.
 _session_engines: dict[str, CortexEngine] = {}
 
 

@@ -281,7 +281,6 @@ export default function DetailedReportPage() {
       }
     } catch (err: any) {
       setError("Failed to fetch session history. Is the backend running?");
-      console.error(err);
     }
     setFetching(false);
   }, []);

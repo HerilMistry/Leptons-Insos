@@ -127,7 +127,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setIsLoading(true);
     try {
       const res = await loginApi(data);
-      console.log("Login response:", res); // temporary — confirm user id field name
       const userId =
         (res as { user?: { id?: string }; user_id?: string }).user?.id ??
         (res as { user_id?: string }).user_id ??

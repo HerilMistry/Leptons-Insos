@@ -12,8 +12,8 @@
 //   chrome.storage.local.set({ groq_api_key: "gsk_YOUR_KEY_HERE" });
 // ============================================================
 
-const GROQ_KEY = "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";
+// Set this to your actual Groq API key before running
+const GROQ_KEY = "YOUR_GROQ_API_KEY_HERE";
 
 chrome.storage.local.set({ groq_api_key: GROQ_KEY }, () => {
-  console.log("[CortexFlow] Groq API key stored in chrome.storage.local.");
 });

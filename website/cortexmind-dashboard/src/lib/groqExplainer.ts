@@ -15,9 +15,6 @@ const GROQ_URL = "https://api.groq.com/openai/v1/chat/completions";
 function getApiKey(): string {
   // Vite exposes env vars as import.meta.env.VITE_*
   const key = import.meta.env?.VITE_GROQ_API_KEY ?? "";
-  if (!key) {
-    console.warn("[GroqExplainer] VITE_GROQ_API_KEY is not set");
-  }
   return key as string;
 }
 
@@ -80,7 +77,6 @@ export async function generateNeuroReport(
     });
 
     if (!res.ok) {
-      console.warn("[GroqExplainer] API error", res.status);
       return localFallbackReport(summary);
     }
 
@@ -94,7 +90,6 @@ export async function generateNeuroReport(
       recommendation: parsed.recommendation || "Take a short break.",
     };
   } catch (err) {
-    console.warn("[GroqExplainer] fetch failed, using fallback", err);
     return localFallbackReport(summary);
   }
 }
@@ -260,7 +255,6 @@ export async function generateSessionReport(
     });
 
     if (!res.ok) {
-      console.warn("[GroqExplainer] API error", res.status);
       return localSessionFallback(agg);
     }
 
@@ -280,7 +274,6 @@ export async function generateSessionReport(
       generatedAt: Date.now(),
     };
   } catch (err) {
-    console.warn("[GroqExplainer] session report fetch failed", err);
     return localSessionFallback(agg);
   }
 }

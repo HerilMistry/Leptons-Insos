@@ -1,5 +1,5 @@
-// Base URL for all API calls — update this constant when deploying
-const API_BASE_URL = "http://localhost:8000/api";
+// Base URL for all API calls — reads from VITE_API_URL env var
+const API_BASE_URL = (import.meta.env?.VITE_API_URL || "http://localhost:8000") + "/api";
 
 const TOKEN_KEY = "neuroweave_token";
 

@@ -31,13 +31,11 @@ async function loadUserId() {
 async function startSession(task = "general") {
   // Guard: prevent duplicate sessions
   if (sessionId) {
-    console.warn("[CortexFlow] Session already active:", sessionId);
     return { error: "session_already_active", session_id: sessionId };
   }
 
   userId = await loadUserId();
   if (!userId) {
-    console.warn("[CortexFlow] No user ID found. Session not started.");
     return { error: "no_user_id" };
   }
 
@@ -68,7 +66,6 @@ async function startSession(task = "general") {
     });
 
     stopActiveSessionPolling();
-    console.log("[CortexFlow] Session started:", sessionId);
     return data;
   } catch (err) {
     console.error("[CortexFlow] Failed to start session:", err);
@@ -96,11 +93,10 @@ async function endSession() {
         body: JSON.stringify({ session_id: sid }),
       });
     } catch (err) {
-      console.warn("[CortexFlow] Could not notify backend of session end:", err);
+      // Backend unreachable — silent
     }
   }
 
-  console.log("[CortexFlow] Session ended.");
   startActiveSessionPolling();
   return { status: "ended" };
 }
@@ -139,7 +135,6 @@ function startActiveSessionPolling() {
           },
         });
         stopActiveSessionPolling();
-        console.log("[CortexFlow] Adopted session from website:", sessionId);
       }
     } catch {
       // Backend unreachable — silent retry next tick
@@ -169,7 +164,6 @@ async function sendTelemetry(features) {
       userId           = stored.cortexflow_user_id   || "unknown";
       taskType         = stored.cortexflow_task_type  || "general";
       sessionStartTime = stored.cortexflow_session_start || Date.now();
-      console.log("[CortexFlow] Recovered session from storage:", sessionId);
     } else {
       return { success: false, error: "No active session" };
     }
@@ -219,7 +213,6 @@ async function sendTelemetry(features) {
       // Tab may not have content script — normal
     }
 
-    console.log("[CortexFlow] Telemetry sent successfully:", inferenceResult.risk);
     return { success: true, inference: inferenceResult };
   } catch (err) {
     console.error("[CortexFlow] Telemetry send failed:", err);
@@ -282,9 +275,6 @@ chrome.storage.onChanged.addListener((changes, area) => {
   // User ID synced from website (login)
   if (changes.cortexflow_user_id) {
     const uid = changes.cortexflow_user_id.newValue;
-    if (uid) {
-      console.log("[CortexFlow] Session synced from website: cortexflow_user_id =", uid);
-    }
   }
 
   // Website set a new session
@@ -297,7 +287,6 @@ chrome.storage.onChanged.addListener((changes, area) => {
         taskType         = data.cortexflow_task_type   || "general";
         sessionStartTime = data.cortexflow_session_start || Date.now();
         stopActiveSessionPolling();
-        console.log("[CortexFlow] Session synced from website:", sessionId);
       }
     );
   }
@@ -321,7 +310,7 @@ chrome.storage.onChanged.addListener((changes, area) => {
         chrome.tabs.sendMessage(tab.id, { type: "SESSION_ENDED" }).catch(() => {});
       }
     });
-    console.log("[CortexFlow] Session ended — synced from storage");
+
   }
 });
 
@@ -343,13 +332,11 @@ chrome.storage.local.get(
       sessionStartTime = data.cortexflow_session_start || Date.now();
       taskType         = data.cortexflow_task_type    || "general";
       tabSwitchCount   = data.cortexflow_tab_switches  || 0;
-      console.log("[CortexFlow] Restored session:", sessionId);
     } else {
       // No active session — start polling for one from the website
       startActiveSessionPolling();
     }
     chrome.storage.local.remove("__cf_boot_reload");
-    console.log("[CortexFlow] Background service worker started (files reloaded from disk).");
   }
 );
 
@@ -359,7 +346,6 @@ chrome.runtime.onStartup.addListener(async () => {
   const data = await chrome.storage.local.get(["cortexflow_session_active", "cortexflow_session_id"]);
   if (data.cortexflow_session_active && data.cortexflow_session_id) {
     // Resume telemetry already restored in the startup block above
-    console.log("[CortexFlow] onStartup: active session found, telemetry resumed.");
   } else {
     startActiveSessionPolling();
   }

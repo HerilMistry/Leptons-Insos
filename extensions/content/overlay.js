@@ -584,6 +584,4 @@ let consecutiveHighRisk    = 0;
   } else {
     document.addEventListener("DOMContentLoaded", createOverlay);
   }
-
-  console.log("[CortexFlow] Overlay injected.");
 })();
