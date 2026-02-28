@@ -11,11 +11,12 @@
 //   • Escape to dismiss banner, Shift+F to toggle panel
 // ============================================================
 
+const COOLDOWN_MS = 45000;  // minimum 45 seconds between banners
+let lastBannerTime = 0;
+let lastBannerType = null;
+
 (() => {
   "use strict";
-
-  // ── Banner cooldown ──────────────────────────────────────
-  let lastBannerTime = 0;
 
   // ── Build DOM ────────────────────────────────────────────
 
@@ -91,61 +92,122 @@
 
   // ── Banner helpers ───────────────────────────────────────
 
-  function showBanner(msg) {
-    const banner = document.getElementById("cf-banner");
-    const bannerMsg = document.getElementById("cf-banner-msg");
-    if (!banner || !bannerMsg) return;
-    bannerMsg.textContent = msg;
-    banner.classList.remove("cf-hidden");
-  }
-
   function hideBanner() {
     const banner = document.getElementById("cf-banner");
     if (banner) banner.classList.add("cf-hidden");
   }
 
-  // ── Intervention logic ───────────────────────────────────
+  function showBanner(msg, emoji, color) {
+    const banner = document.getElementById("cf-banner");
+    const text   = document.getElementById("cf-banner-msg");
+    if (!banner || !text) return;
 
-  function maybeShowIntervention(data) {
+    text.textContent = (emoji || "🧠") + "  " + msg;
+    banner.style.borderLeftColor = color || "#f59e0b";
+    banner.classList.remove("cf-hidden");
+
+    // Auto-dismiss after 12 seconds
+    setTimeout(() => banner.classList.add("cf-hidden"), 12000);
+  }
+
+  // ── Intervention logic (signal-specific messages) ─────────
+
+  function maybeShowIntervention(data, features) {
     if (!data || data.error) return;
 
     const riskThreshold = window.CF_CONFIG?.RISK_DANGER_THRESHOLD || 0.75;
     if ((data.risk || 0) < riskThreshold) return;
 
-    // Cooldown check
-    const cooldown = window.CF_CONFIG?.BANNER_COOLDOWN_MS || 30000;
-    if (Date.now() - lastBannerTime < cooldown) return;
+    const now = Date.now();
+    if (now - lastBannerTime < COOLDOWN_MS) return;  // respect cooldown
 
-    const messages = window.CF_CONFIG?.INTERVENTION_MESSAGES || [
-      "Your focus may be slipping. Consider a short break."
-    ];
-    const msg = messages[Math.floor(Math.random() * messages.length)];
+    const i = data.instability || 0;
+    const d = data.drift       || 0;
+    const f = data.fatigue     || 0;
 
-    showBanner(msg);
-    lastBannerTime = Date.now();
+    const errorRate     = features?.error_rate            || 0;
+    const hesitations   = features?.hesitation_rate      || 0;
+    const dirChanges    = features?.direction_change_rate || 0;
+    const wpm           = features?.wpm_norm               || 0;
+    const burstRate     = features?.burst_rate           || 0;
+    const tabHidden     = features?.tab_hidden_ratio     || 0;
+    const scrollEnt     = features?.scroll_entropy       || 0;
+    const clickRate     = features?.click_rate           || 0;
+    const mouseDistNorm = features?.mouse_distance_norm  || 0;
 
-    // Store intervention history
-    storeInterventionHistory(msg, data.risk);
+    let msg = null;
+    let type = null;
+    let emoji = "🧠";
+    let color = "#f59e0b";
+
+    // 1. Erratic mouse = anxiety / restlessness
+    if (dirChanges > 0.6 && hesitations > 0.4 && i > 0.5) {
+      msg = "Your mouse is moving erratically — your mind might be jumping around. Take a breath and slow down.";
+      type = "erratic_mouse"; emoji = "🖱️"; color = "#f59e0b";
+    }
+    // 2. High error rate = cognitive overload or rushing
+    else if (errorRate > 0.25 && i > 0.4) {
+      msg = "You're making a lot of corrections — could be rushing or overloaded. Slow down, you'll be faster.";
+      type = "high_errors"; emoji = "⌨️"; color = "#f59e0b";
+    }
+    // 3. Typing slowed way down but not idle = zoning out
+    else if (wpm < 0.1 && burstRate < 0.1 && d > 0.5) {
+      msg = "Your typing stopped but you're still here — are you zoned out? Re-read your last paragraph.";
+      type = "typing_stopped"; emoji = "💭"; color = "#3b82f6";
+    }
+    // 4. Rapid erratic scrolling
+    else if (scrollEnt > 0.6 && i > 0.5) {
+      msg = "You're scrolling up and down rapidly — this usually means you're looking for something to distract you. Pick one thing and stick to it.";
+      type = "erratic_scroll"; emoji = "📜"; color = "#f59e0b";
+    }
+    // 5. Tab was hidden = actually left the page
+    else if (tabHidden > 0.4) {
+      msg = "You spent time away from this tab. Welcome back — take 10 seconds to remember where you were before diving back in.";
+      type = "tab_switched"; emoji = "🔙"; color = "#8b5cf6";
+    }
+    // 6. High click rate + high instability = impulsive clicking
+    else if (clickRate > 0.5 && i > 0.6) {
+      msg = "Lots of clicking around — are you actually reading or just scanning? Try picking one spot and staying there.";
+      type = "impulsive_clicking"; emoji = "👆"; color = "#f59e0b";
+    }
+    // 7. Drift dominant = passive / zoning out
+    else if (d > 0.7) {
+      msg = "You seem to be on autopilot right now. Still engaged? Try saying out loud what you just read or wrote.";
+      type = "drift"; emoji = "🌊"; color = "#3b82f6";
+    }
+    // 8. Fatigue high
+    else if (f > 0.8) {
+      msg = "You've been at this for a while — your focus is degrading naturally. A 5-minute break will actually save you time.";
+      type = "fatigue"; emoji = "😴"; color = "#6b7280";
+    }
+    // 9. General breakdown (fallback)
+    else if (data.breakdown_imminent) {
+      msg = "Attention breakdown detected. Step away from the screen for 60 seconds — seriously, it helps.";
+      type = "breakdown"; emoji = "⚠️"; color = "#ef4444";
+    }
+
+    if (!msg || type === lastBannerType) return;  // don't repeat same message twice in a row
+
+    showBanner(msg, emoji, color);
+    lastBannerTime = now;
+    lastBannerType = type;
+
+    logIntervention(type, msg, data);
   }
 
-  // ── Intervention history (chrome.storage) ────────────────
-
-  function storeInterventionHistory(msg, risk) {
-    const maxEntries = window.CF_CONFIG?.MAX_INTERVENTION_HISTORY || 50;
-
-    chrome.storage.local.get("intervention_history", (result) => {
-      const history = result.intervention_history || [];
+  function logIntervention(type, message, data) {
+    chrome.storage.local.get("intervention_history", ({ intervention_history }) => {
+      const history = intervention_history || [];
       history.push({
-        timestamp: Date.now(),
-        message: msg,
-        risk: risk
+        t:       Date.now(),
+        type,
+        message,
+        risk:    data.risk,
+        i:       data.instability,
+        d:       data.drift,
+        f:       data.fatigue,
       });
-
-      // Keep only the last N entries
-      while (history.length > maxEntries) {
-        history.shift();
-      }
-
+      if (history.length > 100) history.splice(0, history.length - 100);
       chrome.storage.local.set({ intervention_history: history });
     });
   }
@@ -198,8 +260,8 @@
       setText("cf-attribution", topKey ? `${topKey[0]}: ${fmtPct(topKey[1])}` : "—");
     }
 
-    // Intervention check
-    maybeShowIntervention(data);
+    // Intervention check (features passed when available from INFERENCE_RESULT message)
+    maybeShowIntervention(data, data.features || {});
   }
 
   // ── Utilities ────────────────────────────────────────────
@@ -229,10 +291,18 @@
     }
   });
 
-  // ── Listen for telemetry data from telemetry.js ──────────
+  // ── Listen for telemetry data ─────────────────────────────
 
   window.addEventListener("cortexflow-telemetry", (e) => {
-    updateOverlay(e.detail);
+    const d = e.detail?.inference ?? e.detail;
+    if (d) updateOverlay(d);
+  });
+
+  chrome.runtime.onMessage.addListener((message) => {
+    if (message.type === "INFERENCE_RESULT") {
+      updateOverlay(message.payload);
+      maybeShowIntervention(message.payload, message.features || {});
+    }
   });
 
   // ── Initialise ───────────────────────────────────────────

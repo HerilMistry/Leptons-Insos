@@ -142,13 +142,14 @@ async function sendTelemetry(features) {
       lastInference:               inferenceResult,
     });
 
-    // Forward to active tab overlay
+    // Forward to active tab overlay (with raw features for signal-specific interventions)
     try {
       const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
       if (activeTab?.id && !activeTab.url?.startsWith("chrome://")) {
         await chrome.tabs.sendMessage(activeTab.id, {
-          type:    "INFERENCE_RESULT",
-          payload: inferenceResult,
+          type:     "INFERENCE_RESULT",
+          payload:  inferenceResult,
+          features: enrichedFeatures,
         });
       }
     } catch {
