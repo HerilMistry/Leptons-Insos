@@ -68,3 +68,17 @@ export async function getSessionDetail(sessionId: string): Promise<Session> {
   }
   return apiFetch<Session>(`/sessions/${sessionId}/detail/`);
 }
+
+/**
+ * GET /sessions/active/?user_id=<id>
+ * Returns the currently-running session for a user (started from extension or website)
+ */
+export async function getActiveSession(userId: string): Promise<{
+  status: "active" | "none";
+  session_id?: string;
+  task_type?: string;
+  start_time?: string;
+}> {
+  if (MOCK_MODE) return { status: "none" };
+  return apiFetch(`/sessions/active/?user_id=${userId}`);
+}

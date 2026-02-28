@@ -1,19 +1,35 @@
-// ============================================================
-// CortexFlow — Overlay UI (Content Script)
-// ============================================================
-// Floating orb + intervention panel injected into every page.
-// Receives telemetry responses via custom event from telemetry.js.
-//
-// Features implemented from Copilot prompts:
-//   • Orb pulses (cf-breakdown class) when breakdown_imminent
-//   • 30-second cooldown between banners
-//   • Intervention history stored in chrome.storage (max 50)
-//   • Escape to dismiss banner, Shift+F to toggle panel
-// ============================================================
 
-const COOLDOWN_MS = 45000;  // minimum 45 seconds between banners
+// ── Task-specific signal thresholds ───────────────────────────────────────
+// Each array = [level1_floor, level2_floor, level3_floor]
+const TASK_THRESHOLDS = {
+  coding:  { instab: [0.45, 0.60, 0.70], drift: [0.55, 0.70, 0.80], fatigue: [0.60, 0.75, 0.85] },
+  writing: { instab: [0.50, 0.65, 0.75], drift: [0.50, 0.65, 0.75], fatigue: [0.60, 0.75, 0.85] },
+  reading: { instab: [0.50, 0.65, 0.75], drift: [0.45, 0.60, 0.70], fatigue: [0.60, 0.75, 0.85] },
+  video:   { instab: [0.60, 0.75, 0.85], drift: [0.40, 0.55, 0.65], fatigue: [0.60, 0.75, 0.85] },
+  general: { instab: [0.50, 0.65, 0.75], drift: [0.50, 0.65, 0.75], fatigue: [0.60, 0.75, 0.85] },
+};
+
+// ── Per-signal hysteresis counters ───────────────────────────────────
+const _sigCount      = { instab: 0, drift: 0, fatigue: 0 };
+// Per-type cooldown end timestamps (ms)
+const _cooldownUntil = { instab: 0, drift: 0, fatigue: 0 };
+const TYPE_COOLDOWNS = { instab: 3 * 60000, drift: 4 * 60000, fatigue: 8 * 60000 };
+// Re-entry / cognitive inertia tracking
+let _inBreakdown   = false;
+let _recoveryCount = 0;
+// Task-type cache (updated from chrome.storage)
+let _currentTask    = "general";
+let _sessionStartMs = null;  // for elapsed-time messages
+// Legacy cooldown kept for backward-compat
+const COOLDOWN_MS  = 5000;
 let lastBannerTime = 0;
 let lastBannerType = null;
+// Breakdown banner state
+let previousRiskLevel      = 'green';  // 'green' | 'yellow' | 'red'
+let currentRiskLevel       = 'green';
+let isBreakdownActive      = false;
+let breakdownCooldownUntil = 0;        // timestamp, not boolean
+let consecutiveHighRisk    = 0;
 
 (() => {
   "use strict";
@@ -70,6 +86,11 @@ let lastBannerType = null;
         <hr>
         <div class="cf-attribution-title">Top Attribution</div>
         <div id="cf-attribution">—</div>
+        <hr>
+        <div class="cf-attribution-title">Recent Interventions</div>
+        <div id="cf-interventions" class="cf-interventions-list">
+          <span class="cf-interventions-empty">No interventions yet</span>
+        </div>
       </div>
     `;
     wrapper.appendChild(panel);
@@ -87,7 +108,15 @@ let lastBannerType = null;
 
   function togglePanel() {
     const panel = document.getElementById("cf-panel");
-    if (panel) panel.classList.toggle("cf-hidden");
+    if (panel) {
+      panel.classList.toggle("cf-hidden");
+      // Refresh interventions list when opening
+      if (!panel.classList.contains("cf-hidden")) {
+        chrome.storage.local.get("intervention_history", ({ intervention_history }) => {
+          updateInterventionPanel(intervention_history || []);
+        });
+      }
+    }
   }
 
   // ── Banner helpers ───────────────────────────────────────
@@ -110,89 +139,302 @@ let lastBannerType = null;
     setTimeout(() => banner.classList.add("cf-hidden"), 12000);
   }
 
-  // ── Intervention logic (signal-specific messages) ─────────
+  // ── Graduated Intervention System ────────────────────────
 
-  function maybeShowIntervention(data, features) {
+  function getSignalLevel(val, thresholds) {
+    if (val >= thresholds[2]) return 3;
+    if (val >= thresholds[1]) return 2;
+    if (val >= thresholds[0]) return 1;
+    return 0;
+  }
+
+  function applyOrbHint(cls) {
+    const orb = document.getElementById("cf-orb");
+    if (!orb) return;
+    if (orb.classList.contains("cf-red") || orb.classList.contains("cf-breakdown")) return;
+    orb.classList.remove("cf-amber-pulse", "cf-drift-pulse", "cf-fatigue-dim");
+    orb.classList.add(cls);
+  }
+
+  function tryPauseVideo() {
+    document.querySelectorAll("video").forEach(function(v) { if (!v.paused) v.pause(); });
+  }
+
+  function getElapsedMin() {
+    if (!_sessionStartMs) return null;
+    return Math.floor((Date.now() - _sessionStartMs) / 60000);
+  }
+
+  function showSoftFocusCheck() {
+    const banner = document.getElementById("cf-banner");
+    const textEl = document.getElementById("cf-banner-msg");
+    if (!banner || !textEl) return;
+    textEl.innerHTML = '💭 Still with it? <button id="cf-focus-yes" style="margin-left:8px;padding:2px 10px;border-radius:6px;background:#22c55e;color:#fff;border:none;cursor:pointer;font-size:12px;">Yes, focused ✓</button>';
+    banner.style.borderLeftColor = "#3b82f6";
+    banner.classList.remove("cf-hidden");
+    const yes = document.getElementById("cf-focus-yes");
+    if (yes) yes.addEventListener("click", function() { hideBanner(); _sigCount.drift = 0; });
+    setTimeout(function() { banner.classList.add("cf-hidden"); }, 15000);
+  }
+
+  function showBreathingTimer() {
+    var old = document.getElementById("cf-breathing-timer");
+    if (old) old.remove();
+    var el = document.createElement("div");
+    el.id = "cf-breathing-timer";
+    el.innerHTML = '<div id="cf-bt-inner"><div id="cf-bt-title">😮‍💨 Micro-Break</div><div id="cf-bt-sub">Executive resources depleted — 60s reset:</div><div id="cf-bt-ring"></div><div id="cf-bt-countdown">60</div><button id="cf-bt-skip">Skip</button></div>';
+    document.body.appendChild(el);
+    var rem = 60;
+    var cd  = document.getElementById("cf-bt-countdown");
+    var iv  = setInterval(function() {
+      if (cd) cd.textContent = --rem;
+      if (rem <= 0) { clearInterval(iv); el.remove(); }
+    }, 1000);
+    var skip = document.getElementById("cf-bt-skip");
+    if (skip) skip.addEventListener("click", function() { clearInterval(iv); el.remove(); });
+  }
+
+  // ── Breakdown Banner ─────────────────────────────────────
+
+  function updateOrbColor(level) {
+    var orb = document.getElementById("cf-orb");
+    if (!orb) return;
+    orb.classList.remove("cf-green", "cf-yellow", "cf-red", "cf-breakdown");
+    if (level === 'red') {
+      orb.style.background = 'radial-gradient(circle at 30% 30%, #ff6b6b, #dc2626)';
+      orb.style.boxShadow = '0 0 18px rgba(220,38,38,0.7)';
+      orb.classList.add("cf-red");
+    } else if (level === 'yellow') {
+      orb.style.background = 'radial-gradient(circle at 30% 30%, #fbbf24, #f59e0b)';
+      orb.style.boxShadow = '0 0 14px rgba(245,158,11,0.5)';
+      orb.classList.add("cf-yellow");
+    } else {
+      orb.style.background = 'radial-gradient(circle at 30% 30%, #34d399, #10b981)';
+      orb.style.boxShadow = '0 0 12px rgba(16,185,129,0.4)';
+      orb.classList.add("cf-green");
+    }
+  }
+
+  function handleInferenceResult(inferenceData) {
+    var risk   = inferenceData.risk || 0;
+    var breakdown_imminent = inferenceData.breakdown_imminent;
+    var attribution = inferenceData.attribution;
+    // attribution is the only field needed for the banner
+
+    // Determine current level
+    previousRiskLevel = currentRiskLevel;
+    if (risk >= 0.65 || breakdown_imminent) {
+      currentRiskLevel = 'red';
+    } else if (risk >= 0.45) {
+      currentRiskLevel = 'yellow';
+    } else {
+      currentRiskLevel = 'green';
+    }
+
+    // Update orb color always (unless breakdown banner is active)
+    if (!isBreakdownActive) {
+      updateOrbColor(currentRiskLevel);
+    }
+
+    // Track consecutive high risk windows
+    if (currentRiskLevel === 'red') {
+      consecutiveHighRisk++;
+    } else {
+      consecutiveHighRisk = 0;
+    }
+
+    // TRIGGER BANNER: fire when entering red FROM yellow or green
+    var justEnteredRed = currentRiskLevel === 'red' && previousRiskLevel !== 'red';
+    var cooldownExpired = Date.now() > breakdownCooldownUntil;
+
+    if (justEnteredRed && cooldownExpired && !isBreakdownActive) {
+      showBreakdownBanner(attribution);
+    }
+  }
+
+  function showBreakdownBanner(attribution) {
+    isBreakdownActive = true;
+
+    // Find highest attribution reason
+    var reason = "multiple focus signals spiking";
+    if (attribution && typeof attribution === 'object') {
+      var entries = Object.entries(attribution);
+      if (entries.length > 0) {
+        var topKey = entries.reduce(function(a, b) { return a[1] > b[1] ? a : b; })[0];
+        var reasonMap = {
+          switch_rate: "too many tab switches pulling you away",
+          motor_var: "restless movement \u2014 attention is scattered",
+          idle_ratio: "you\u2019ve mentally checked out",
+          scroll_entropy: "aimless scrolling detected",
+          distractor_attempts: "distractor sites pulling focus"
+        };
+        reason = reasonMap[topKey] || reason;
+      }
+    }
+
+    // Remove any existing banner first
+    var existing = document.getElementById('cortexflow-breakdown-banner');
+    if (existing) existing.remove();
+
+    // Create banner
+    var banner = document.createElement('div');
+    banner.id = 'cortexflow-breakdown-banner';
+    banner.style.cssText = [
+      "position:fixed !important",
+      "top:0 !important",
+      "left:0 !important",
+      "width:100% !important",
+      "z-index:2147483647 !important",
+      "background:linear-gradient(135deg,#dc2626,#991b1b) !important",
+      "color:white !important",
+      "padding:14px 20px !important",
+      "font-family:system-ui,-apple-system,sans-serif !important",
+      "font-size:14px !important",
+      "display:flex !important",
+      "justify-content:space-between !important",
+      "align-items:center !important",
+      "box-shadow:0 4px 20px rgba(220,38,38,0.6) !important",
+      "box-sizing:border-box !important"
+    ].join(";");
+
+    var leftSpan = document.createElement('span');
+    leftSpan.innerHTML = '\uD83E\uDDE0 <strong>Focus breakdown detected</strong> \u2014 ' + reason;
+    var dismissBtn = document.createElement('button');
+    dismissBtn.id = 'cortexflow-dismiss-btn';
+    dismissBtn.textContent = 'Got it, refocusing \u2192';
+    dismissBtn.style.cssText = [
+      "background:transparent !important",
+      "border:1px solid rgba(255,255,255,0.6) !important",
+      "color:white !important",
+      "padding:6px 14px !important",
+      "border-radius:6px !important",
+      "cursor:pointer !important",
+      "font-size:13px !important",
+      "font-family:inherit !important",
+      "white-space:nowrap !important",
+      "margin-left:20px !important"
+    ].join(";");
+
+    dismissBtn.addEventListener('click', dismissBanner);
+    banner.appendChild(leftSpan);
+    banner.appendChild(dismissBtn);
+    document.body.prepend(banner);
+
+    // Auto-dismiss after 15 seconds
+    setTimeout(function() {
+      if (isBreakdownActive) dismissBanner();
+    }, 15000);
+  }
+
+  function dismissBanner() {
+    var banner = document.getElementById('cortexflow-breakdown-banner');
+    if (banner) {
+      banner.style.transition = 'transform 0.3s ease, opacity 0.3s ease';
+      banner.style.transform = 'translateY(-100%)';
+      banner.style.opacity = '0';
+      setTimeout(function() { if (banner.parentNode) banner.remove(); }, 300);
+    }
+    isBreakdownActive = false;
+    // Set cooldown: 3 minutes from dismissal before banner can fire again
+    breakdownCooldownUntil = Date.now() + (3 * 60 * 1000);
+    // Reset orb to current actual color
+    updateOrbColor(currentRiskLevel);
+  }
+
+  // Main graduated intervention dispatcher
+  function runGraduatedInterventions(data, features) {
     if (!data || data.error) return;
+    var now = Date.now();
 
-    const riskThreshold = window.CF_CONFIG?.RISK_DANGER_THRESHOLD || 0.75;
-    if ((data.risk || 0) < riskThreshold) return;
+    // Refresh task type + session start (non-blocking)
+    chrome.storage.local.get(["cortexflow_task_type", "cortexflow_session_start"], function(s) {
+      if (s.cortexflow_task_type) _currentTask = s.cortexflow_task_type.toLowerCase();
+      if (s.cortexflow_session_start && !_sessionStartMs) _sessionStartMs = s.cortexflow_session_start;
+    });
 
-    const now = Date.now();
-    if (now - lastBannerTime < COOLDOWN_MS) return;  // respect cooldown
+    var thr  = TASK_THRESHOLDS[_currentTask] || TASK_THRESHOLDS.general;
+    var i    = data.instability || 0;
+    var d    = data.drift       || 0;
+    var f    = data.fatigue     || 0;
+    var risk = data.risk        || 0;
 
-    const i = data.instability || 0;
-    const d = data.drift       || 0;
-    const f = data.fatigue     || 0;
+    // ── Risk state tracking via handleInferenceResult ────
+    handleInferenceResult(data);
 
-    const errorRate     = features?.error_rate            || 0;
-    const hesitations   = features?.hesitation_rate      || 0;
-    const dirChanges    = features?.direction_change_rate || 0;
-    const wpm           = features?.wpm_norm               || 0;
-    const burstRate     = features?.burst_rate           || 0;
-    const tabHidden     = features?.tab_hidden_ratio     || 0;
-    const scrollEnt     = features?.scroll_entropy       || 0;
-    const clickRate     = features?.click_rate           || 0;
-    const mouseDistNorm = features?.mouse_distance_norm  || 0;
-
-    let msg = null;
-    let type = null;
-    let emoji = "🧠";
-    let color = "#f59e0b";
-
-    // 1. Erratic mouse = anxiety / restlessness
-    if (dirChanges > 0.6 && hesitations > 0.4 && i > 0.5) {
-      msg = "Your mouse is moving erratically — your mind might be jumping around. Take a breath and slow down.";
-      type = "erratic_mouse"; emoji = "🖱️"; color = "#f59e0b";
-    }
-    // 2. High error rate = cognitive overload or rushing
-    else if (errorRate > 0.25 && i > 0.4) {
-      msg = "You're making a lot of corrections — could be rushing or overloaded. Slow down, you'll be faster.";
-      type = "high_errors"; emoji = "⌨️"; color = "#f59e0b";
-    }
-    // 3. Typing slowed way down but not idle = zoning out
-    else if (wpm < 0.1 && burstRate < 0.1 && d > 0.5) {
-      msg = "Your typing stopped but you're still here — are you zoned out? Re-read your last paragraph.";
-      type = "typing_stopped"; emoji = "💭"; color = "#3b82f6";
-    }
-    // 4. Rapid erratic scrolling
-    else if (scrollEnt > 0.6 && i > 0.5) {
-      msg = "You're scrolling up and down rapidly — this usually means you're looking for something to distract you. Pick one thing and stick to it.";
-      type = "erratic_scroll"; emoji = "📜"; color = "#f59e0b";
-    }
-    // 5. Tab was hidden = actually left the page
-    else if (tabHidden > 0.4) {
-      msg = "You spent time away from this tab. Welcome back — take 10 seconds to remember where you were before diving back in.";
-      type = "tab_switched"; emoji = "🔙"; color = "#8b5cf6";
-    }
-    // 6. High click rate + high instability = impulsive clicking
-    else if (clickRate > 0.5 && i > 0.6) {
-      msg = "Lots of clicking around — are you actually reading or just scanning? Try picking one spot and staying there.";
-      type = "impulsive_clicking"; emoji = "👆"; color = "#f59e0b";
-    }
-    // 7. Drift dominant = passive / zoning out
-    else if (d > 0.7) {
-      msg = "You seem to be on autopilot right now. Still engaged? Try saying out loud what you just read or wrote.";
-      type = "drift"; emoji = "🌊"; color = "#3b82f6";
-    }
-    // 8. Fatigue high
-    else if (f > 0.8) {
-      msg = "You've been at this for a while — your focus is degrading naturally. A 5-minute break will actually save you time.";
-      type = "fatigue"; emoji = "😴"; color = "#6b7280";
-    }
-    // 9. General breakdown (fallback)
-    else if (data.breakdown_imminent) {
-      msg = "Attention breakdown detected. Step away from the screen for 60 seconds — seriously, it helps.";
-      type = "breakdown"; emoji = "⚠️"; color = "#ef4444";
+    // Re-entry: require 2 consecutive low-risk windows before leaving breakdown state
+    if (_inBreakdown) {
+      if (risk < 0.35) {
+        _recoveryCount++;
+        if (_recoveryCount >= 2) {
+          _inBreakdown   = false;
+          _recoveryCount = 0;
+          var orb2 = document.getElementById("cf-orb");
+          if (orb2) orb2.classList.remove("cf-breakdown", "cf-amber-pulse", "cf-drift-pulse", "cf-fatigue-dim");
+        }
+      } else {
+        _recoveryCount = 0;
+      }
+      return;
     }
 
-    if (!msg || type === lastBannerType) return;  // don't repeat same message twice in a row
+    // Hysteresis counters
+    _sigCount.instab  = i >= thr.instab[0]  ? _sigCount.instab  + 1 : Math.max(0, _sigCount.instab  - 1);
+    _sigCount.drift   = d >= thr.drift[0]   ? _sigCount.drift   + 1 : Math.max(0, _sigCount.drift   - 1);
+    _sigCount.fatigue = f >= thr.fatigue[0] ? _sigCount.fatigue + 1 : Math.max(0, _sigCount.fatigue - 1);
 
-    showBanner(msg, emoji, color);
-    lastBannerTime = now;
-    lastBannerType = type;
+    // ── INSTABILITY (Salience Network) ────────────────────────
+    var instabLv = getSignalLevel(i, thr.instab);
+    if (instabLv === 1) {
+      applyOrbHint("cf-amber-pulse");
+    } else if (instabLv === 2 && now > _cooldownUntil.instab) {
+      var sw = (features && features.switch_rate != null) ? Math.round(features.switch_rate) : "several";
+      showBanner("You've switched context " + sw + "x/min — focus is fragmenting.", "🔀", "#f59e0b");
+      _cooldownUntil.instab = now + TYPE_COOLDOWNS.instab;
+      logIntervention("instability_l2", "context-switching warning", data);
+    } else if (instabLv === 3 && _sigCount.instab >= 2 && now > _cooldownUntil.instab) {
+      showBanner("Before you switch — one breath: does this serve your current goal?", "🛑", "#ef4444");
+      _cooldownUntil.instab = now + TYPE_COOLDOWNS.instab;
+      _inBreakdown = true;
+      logIntervention("instability_l3", "impulse-control prompt", data);
+    }
 
-    logIntervention(type, msg, data);
+    // ── DRIFT (Default Mode Network) ──────────────────────────
+    var driftLv = getSignalLevel(d, thr.drift);
+    if (driftLv === 1) {
+      applyOrbHint("cf-drift-pulse");
+    } else if (driftLv === 2 && now > _cooldownUntil.drift) {
+      showSoftFocusCheck();
+      _cooldownUntil.drift = now + TYPE_COOLDOWNS.drift;
+      logIntervention("drift_l2", "focus-check prompt", data);
+    } else if (driftLv === 3 && _sigCount.drift >= 2 && now > _cooldownUntil.drift) {
+      showBanner("Fully disconnected — pause and re-read your last paragraph before continuing.", "🌊", "#3b82f6");
+      tryPauseVideo();
+      _cooldownUntil.drift = now + TYPE_COOLDOWNS.drift;
+      _inBreakdown = true;
+      logIntervention("drift_l3", "full-drift intervention", data);
+    }
+
+    // ── FATIGUE (Executive depletion) ─────────────────────────
+    var fatigueLv = getSignalLevel(f, thr.fatigue);
+    if (fatigueLv === 1) {
+      applyOrbHint("cf-fatigue-dim");
+    } else if (fatigueLv === 2 && now > _cooldownUntil.fatigue) {
+      var mins = getElapsedMin();
+      var timeStr = mins != null ? (mins + " min") : "a while";
+      showBanner("You've been at this for " + timeStr + " — a 2-min break will pay off.", "😴", "#6b7280");
+      _cooldownUntil.fatigue = now + TYPE_COOLDOWNS.fatigue;
+      logIntervention("fatigue_l2", "break suggestion", data);
+    } else if (fatigueLv === 3 && _sigCount.fatigue >= 2 && now > _cooldownUntil.fatigue) {
+      showBreathingTimer();
+      _cooldownUntil.fatigue = now + TYPE_COOLDOWNS.fatigue;
+      _inBreakdown = true;
+      logIntervention("fatigue_l3", "breathing timer", data);
+    }
+  }
+
+  // Legacy wrapper — keeps external callers working
+  function maybeShowIntervention(data, features) {
+    runGraduatedInterventions(data, features);
   }
 
   function logIntervention(type, message, data) {
@@ -209,38 +451,46 @@ let lastBannerType = null;
       });
       if (history.length > 100) history.splice(0, history.length - 100);
       chrome.storage.local.set({ intervention_history: history });
+      // Refresh panel if visible
+      updateInterventionPanel(history);
     });
+  }
+
+  function updateInterventionPanel(history) {
+    const container = document.getElementById("cf-interventions");
+    if (!container) return;
+
+    if (!history || history.length === 0) {
+      container.innerHTML = '<span class="cf-interventions-empty">No interventions yet</span>';
+      return;
+    }
+
+    // Show last 5, newest first
+    const recent = history.slice(-5).reverse();
+    container.innerHTML = recent.map((item) => {
+      const ago = formatTimeAgo(item.t);
+      const typeLabel = item.type.replace(/_/g, " ");
+      return `<div class="cf-intervention-item">
+        <span class="cf-intervention-type">${typeLabel}</span>
+        <span class="cf-intervention-ago">${ago}</span>
+      </div>`;
+    }).join("");
+  }
+
+  function formatTimeAgo(ts) {
+    const diff = Math.floor((Date.now() - ts) / 1000);
+    if (diff < 60) return `${diff}s ago`;
+    if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
+    if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
+    return `${Math.floor(diff / 86400)}d ago`;
   }
 
   // ── Update UI with telemetry data ────────────────────────
 
-  function updateOverlay(data) {
+  function updateOverlay(data, features) {
     if (!data || data.error) return;
 
-    const orb = document.getElementById("cf-orb");
-    if (orb) {
-      // Colour the orb based on risk
-      const risk = data.risk || 0;
-      const warn = window.CF_CONFIG?.RISK_WARN_THRESHOLD || 0.5;
-      const danger = window.CF_CONFIG?.RISK_DANGER_THRESHOLD || 0.75;
-
-      orb.classList.remove("cf-green", "cf-yellow", "cf-red", "cf-breakdown");
-
-      if (risk >= danger) {
-        orb.classList.add("cf-red");
-      } else if (risk >= warn) {
-        orb.classList.add("cf-yellow");
-      } else {
-        orb.classList.add("cf-green");
-      }
-
-      // Pulse when breakdown imminent
-      if (data.breakdown_imminent) {
-        orb.classList.add("cf-breakdown");
-      }
-    }
-
-    // Fill panel stats
+    // Fill panel stats (always updated, even during breakdown)
     setText("cf-risk", fmtPct(data.risk));
     setText("cf-instability", fmtPct(data.instability));
     setText("cf-drift", fmtPct(data.drift));
@@ -260,8 +510,8 @@ let lastBannerType = null;
       setText("cf-attribution", topKey ? `${topKey[0]}: ${fmtPct(topKey[1])}` : "—");
     }
 
-    // Intervention check (features passed when available from INFERENCE_RESULT message)
-    maybeShowIntervention(data, data.features || {});
+    // Graduated intervention check (also calls updateRiskState which handles orb color)
+    runGraduatedInterventions(data, features || data.features || {});
   }
 
   // ── Utilities ────────────────────────────────────────────
@@ -300,8 +550,26 @@ let lastBannerType = null;
 
   chrome.runtime.onMessage.addListener((message) => {
     if (message.type === "INFERENCE_RESULT") {
-      updateOverlay(message.payload);
-      maybeShowIntervention(message.payload, message.features || {});
+      // Pass features as second arg so graduated interventions get raw signals
+      updateOverlay(message.payload, message.features || {});
+    }
+    if (message.type === "SESSION_ENDED") {
+      // Reset overlay state when session ends from website or extension
+      const orb = document.getElementById("cf-orb");
+      if (orb) {
+        orb.classList.remove("cf-red", "cf-yellow", "cf-breakdown", "cf-amber-pulse", "cf-drift-pulse", "cf-fatigue-dim");
+        orb.classList.add("cf-green");
+      }
+      _inBreakdown   = false;
+      _recoveryCount = 0;
+      _sigCount.instab = _sigCount.drift = _sigCount.fatigue = 0;
+      isBreakdownActive      = false;
+      breakdownCooldownUntil = 0;
+      consecutiveHighRisk    = 0;
+      previousRiskLevel      = 'green';
+      currentRiskLevel       = 'green';
+      const bd = document.getElementById("cortexflow-breakdown-banner");
+      if (bd) bd.remove();
     }
   });
 

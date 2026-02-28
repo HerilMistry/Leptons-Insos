@@ -1,5 +1,5 @@
-import React, { createContext, useContext, useState, useCallback } from "react";
-import { startSession as startSessionApi, stopSession as stopSessionApi } from "@/api/sessions";
+import React, { createContext, useContext, useState, useCallback, useEffect } from "react";
+import { startSession as startSessionApi, stopSession as stopSessionApi, getActiveSession } from "@/api/sessions";
 import type { TaskType, StartSessionRequest } from "@/types/api";
 import { ACTIVE_SESSION_KEY } from "@/utils/constants";
 import { writeLocalSession } from "@/utils/sessionHistory";
@@ -26,6 +26,12 @@ function syncSessionToExtension(
             cortexflow_task_type:      taskType || "general",
             cortexflow_session_active: true,
             cortexflow_session_start:  Date.now(),
+            active_session: JSON.stringify({
+              session_id:  String(sessionId),
+              task_type:   taskType || "general",
+              start_time:  new Date().toISOString(),
+              source:      "website",
+            }),
           },
         },
         window.location.origin
@@ -36,7 +42,11 @@ function syncSessionToExtension(
         {
           __cortexflow: true,
           action: "SET",
-          payload: { cortexflow_session_id: null, cortexflow_session_active: false },
+          payload: {
+            cortexflow_session_id: null,
+            cortexflow_session_active: false,
+            active_session: null,
+          },
         },
         window.location.origin
       );
@@ -56,6 +66,7 @@ interface ActiveSession {
   task_label?: string;
   task_description?: string;
   started_at: string;
+  from_extension?: boolean;
 }
 
 interface SessionContextType {
@@ -137,6 +148,31 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
     // Tell extension the session ended
     syncSessionToExtension(null, user?.id ?? null, null);
   }, [activeSession, user]);
+
+  // ── Poll for sessions started from the extension ──────────────────────────
+  useEffect(() => {
+    if (isSessionActive || !user) return;
+    let cancelled = false;
+
+    const poll = async () => {
+      try {
+        const result = await getActiveSession(user.id);
+        if (cancelled || result.status !== "active" || !result.session_id) return;
+        const session: ActiveSession = {
+          id: result.session_id,
+          task_type: (result.task_type || "general") as TaskType,
+          started_at: result.start_time || new Date().toISOString(),
+          from_extension: true,
+        };
+        setActiveSession(session);
+        localStorage.setItem(ACTIVE_SESSION_KEY, JSON.stringify(session));
+      } catch { /* ignore — backend may not be running */ }
+    };
+
+    poll();
+    const interval = setInterval(poll, 5000);
+    return () => { cancelled = true; clearInterval(interval); };
+  }, [isSessionActive, user]);
 
   return (
     <SessionContext.Provider value={{ activeSession, isSessionActive, startSession, stopSession }}>

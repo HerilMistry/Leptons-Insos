@@ -86,12 +86,13 @@ def merge_datasets(nasa_file, mooc_file, mouse_file, output_file):
 
     np.random.seed(42)
 
-    n_sessions   = 400    # number of simulated sessions
-    session_len  = 10     # timesteps per session (10 × 5s = 50s window)
-    # Scenario split: 25% focused, 35% high-conflict, 25% drift, 15% fatigue
-    scenarios    = np.random.choice(
-        ['focus', 'conflict', 'drift', 'fatigue'],
-        size=n_sessions, p=[0.25, 0.35, 0.25, 0.15]
+    n_sessions   = 600    # number of simulated sessions
+    session_len  = 20     # timesteps per session (20 × 5s = 100s window)
+    # Scenario split: balanced across 5 distinct behavioral profiles
+    scenario_names = ['focus', 'conflict', 'drift', 'fatigue', 'mixed']
+    scenarios = np.random.choice(
+        scenario_names,
+        size=n_sessions, p=[0.20, 0.25, 0.20, 0.15, 0.20]
     )
 
     X, y = [], []
@@ -131,23 +132,30 @@ def merge_datasets(nasa_file, mooc_file, mouse_file, output_file):
             I_drift_rate = np.random.uniform(-0.005, 0.005)
             D_drift_rate = np.random.uniform(0.01, 0.04)    # drift rising
 
-        else:  # fatigue
+        elif scenario == 'fatigue':
             I_base = np.clip(base_I * 0.8, 0.2, 0.6)
             D_base = np.clip(base_D * 0.6, 0.2, 0.6)
             F_base = np.random.uniform(0.55, 0.85)
             I_drift_rate = np.random.uniform(0.01, 0.03)
             D_drift_rate = np.random.uniform(0.005, 0.02)
 
+        else:  # mixed — starts focused, devolves mid-session
+            I_base = np.clip(base_I * 0.4, 0.05, 0.3)
+            D_base = np.clip(base_D * 0.3, 0.05, 0.25)
+            F_base = np.clip(base_F * 0.4, 0.1, 0.35)
+            I_drift_rate = np.random.uniform(0.02, 0.06)
+            D_drift_rate = np.random.uniform(0.01, 0.03)
+
         prev_I, prev_D = I_base, D_base
         A_t = 0.0   # drift-diffusion accumulator
 
         for t in range(session_len):
             # Evolve features naturally across timesteps
-            noise_I = np.random.normal(0, 0.02)
-            noise_D = np.random.normal(0, 0.015)
+            noise_I = np.random.normal(0, 0.025)
+            noise_D = np.random.normal(0, 0.018)
             I_t = np.clip(prev_I + I_drift_rate + noise_I, 0.0, 2.0)
             D_t = np.clip(prev_D + D_drift_rate + noise_D, 0.0, 1.0)
-            F_t = np.clip(F_base + t * 0.008, 0.0, 1.0)  # fatigue rises with time
+            F_t = np.clip(F_base + t * 0.012, 0.0, 1.0)  # fatigue rises with time
 
             # Real temporal deltas
             delta_I = I_t - prev_I

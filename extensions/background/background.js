@@ -5,11 +5,12 @@
 importScripts("../config.js");
 
 // ── State ──────────────────────────────────────────────────
-let sessionId        = null;
+let sessionId        = null;   // single source of truth
 let userId           = null;
 let taskType         = "general";
 let tabSwitchCount   = 0;
 let sessionStartTime = null;
+let _activeSessionPollId = null;  // interval id for website-session polling
 
 // ── Helpers ────────────────────────────────────────────────
 
@@ -28,6 +29,12 @@ async function loadUserId() {
 // ── Session management ─────────────────────────────────────
 
 async function startSession(task = "general") {
+  // Guard: prevent duplicate sessions
+  if (sessionId) {
+    console.warn("[CortexFlow] Session already active:", sessionId);
+    return { error: "session_already_active", session_id: sessionId };
+  }
+
   userId = await loadUserId();
   if (!userId) {
     console.warn("[CortexFlow] No user ID found. Session not started.");
@@ -52,8 +59,15 @@ async function startSession(task = "general") {
       cortexflow_task_type:      taskType,
       cortexflow_session_active: true,
       cortexflow_session_start:  sessionStartTime,
+      active_session: {
+        session_id:  sessionId,
+        task_type:   taskType,
+        start_time:  new Date(sessionStartTime).toISOString(),
+        source:      "extension",
+      },
     });
 
+    stopActiveSessionPolling();
     console.log("[CortexFlow] Session started:", sessionId);
     return data;
   } catch (err) {
@@ -71,6 +85,7 @@ async function endSession() {
   chrome.storage.local.set({
     cortexflow_session_id:     null,
     cortexflow_session_active: false,
+    active_session:            null,
   });
 
   if (sid) {
@@ -86,10 +101,58 @@ async function endSession() {
   }
 
   console.log("[CortexFlow] Session ended.");
+  startActiveSessionPolling();
   return { status: "ended" };
 }
 
 // ── Telemetry relay ────────────────────────────────────────
+
+// ── Active-session polling (detect sessions started from website) ────
+
+function startActiveSessionPolling() {
+  stopActiveSessionPolling();
+  _activeSessionPollId = setInterval(async () => {
+    // Only poll when no session is locally active
+    if (sessionId) return;
+    const stored = await chrome.storage.local.get("cortexflow_user_id");
+    const uid = stored.cortexflow_user_id;
+    if (!uid) return;  // no user logged in
+    try {
+      const res = await fetch(apiUrl(`/api/sessions/active/?user_id=${uid}`));
+      const data = await res.json();
+      if (data.status === "active" && data.session_id) {
+        // Website started a session — adopt it
+        sessionId        = data.session_id;
+        userId           = uid;
+        taskType         = data.task_type || "general";
+        sessionStartTime = data.start_time ? new Date(data.start_time).getTime() : Date.now();
+        chrome.storage.local.set({
+          cortexflow_session_id:     sessionId,
+          cortexflow_task_type:      taskType,
+          cortexflow_session_active: true,
+          cortexflow_session_start:  sessionStartTime,
+          active_session: {
+            session_id:  sessionId,
+            task_type:   taskType,
+            start_time:  data.start_time || new Date(sessionStartTime).toISOString(),
+            source:      "website",
+          },
+        });
+        stopActiveSessionPolling();
+        console.log("[CortexFlow] Adopted session from website:", sessionId);
+      }
+    } catch {
+      // Backend unreachable — silent retry next tick
+    }
+  }, 5000);
+}
+
+function stopActiveSessionPolling() {
+  if (_activeSessionPollId) {
+    clearInterval(_activeSessionPollId);
+    _activeSessionPollId = null;
+  }
+}
 
 async function sendTelemetry(features) {
   // Recover session from storage if service worker was restarted or
@@ -233,21 +296,32 @@ chrome.storage.onChanged.addListener((changes, area) => {
         userId           = data.cortexflow_user_id    || null;
         taskType         = data.cortexflow_task_type   || "general";
         sessionStartTime = data.cortexflow_session_start || Date.now();
+        stopActiveSessionPolling();
         console.log("[CortexFlow] Session synced from website:", sessionId);
       }
     );
   }
 
-  // Website cleared the session
+  // Website or extension cleared the session — also watch the active_session key
   if (
-    "cortexflow_session_id" in changes &&
-    (changes.cortexflow_session_id.newValue === null ||
-      changes.cortexflow_session_id.newValue === undefined)
+    ("cortexflow_session_id" in changes &&
+      (changes.cortexflow_session_id.newValue === null ||
+        changes.cortexflow_session_id.newValue === undefined)) ||
+    ("active_session" in changes &&
+      (changes.active_session.newValue === null ||
+        changes.active_session.newValue === undefined))
   ) {
     sessionId        = null;
     sessionStartTime = null;
     tabSwitchCount   = 0;
-    console.log("[CortexFlow] Session ended — synced from website");
+    startActiveSessionPolling();
+    // Tell content scripts to reset overlay to green
+    chrome.tabs.query({ active: true, currentWindow: true }, ([tab]) => {
+      if (tab?.id && !tab.url?.startsWith("chrome://")) {
+        chrome.tabs.sendMessage(tab.id, { type: "SESSION_ENDED" }).catch(() => {});
+      }
+    });
+    console.log("[CortexFlow] Session ended — synced from storage");
   }
 });
 
@@ -270,9 +344,30 @@ chrome.storage.local.get(
       taskType         = data.cortexflow_task_type    || "general";
       tabSwitchCount   = data.cortexflow_tab_switches  || 0;
       console.log("[CortexFlow] Restored session:", sessionId);
+    } else {
+      // No active session — start polling for one from the website
+      startActiveSessionPolling();
     }
-    // Clear the boot-reload flag so future file changes can trigger a reload again
     chrome.storage.local.remove("__cf_boot_reload");
     console.log("[CortexFlow] Background service worker started (files reloaded from disk).");
   }
 );
+
+// ── Startup / install ───────────────────────────────────────────────
+
+chrome.runtime.onStartup.addListener(async () => {
+  const data = await chrome.storage.local.get(["cortexflow_session_active", "cortexflow_session_id"]);
+  if (data.cortexflow_session_active && data.cortexflow_session_id) {
+    // Resume telemetry already restored in the startup block above
+    console.log("[CortexFlow] onStartup: active session found, telemetry resumed.");
+  } else {
+    startActiveSessionPolling();
+  }
+});
+
+chrome.runtime.onInstalled.addListener(async () => {
+  const data = await chrome.storage.local.get(["cortexflow_session_active", "cortexflow_session_id"]);
+  if (!data.cortexflow_session_active) {
+    startActiveSessionPolling();
+  }
+});

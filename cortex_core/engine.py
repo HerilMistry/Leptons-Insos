@@ -138,20 +138,22 @@ class CortexEngine:
         # Advance temporal window
         self._previous_state = current_state
 
+        # Clamp all values to [0, 1] for display safety
+        _c = lambda v: round(max(0.0, min(1.0, float(v))), 4)
         return {
-            'instability': round(current_state['I_t'], 4),
-            'drift':       round(current_state['D_t'], 4),
-            'fatigue':     round(current_state['F_t'], 4),
-            'risk':        round(risk, 4),
-            'accumulated_conflict': round(float(accumulated_conflict), 4),
+            'instability': _c(current_state['I_t']),
+            'drift':       _c(current_state['D_t']),
+            'fatigue':     _c(current_state['F_t']),
+            'risk':        _c(risk),
+            'accumulated_conflict': _c(accumulated_conflict),
             'breakdown_imminent': bool(is_breakdown),
-            'breakdown_probability': round(breakdown_prob, 4),
-            'attribution': {k: round(v, 4) for k, v in top_attribution.items()},
+            'breakdown_probability': round(min(1.0, max(0.0, breakdown_prob)), 4),
+            'attribution': {k: round(max(0.0, min(1.0, v)), 4) for k, v in top_attribution.items()},
             'network': {
-                'ECN':      round(float(network['ECN']), 4),
-                'DMN':      round(float(network['DMN']), 4),
-                'Salience': round(float(network['Salience']), 4),
-                'Load':     round(float(network['Load']), 4),
+                'ECN':      _c(network['ECN']),
+                'DMN':      _c(network['DMN']),
+                'Salience': _c(network['Salience']),
+                'Load':     _c(network['Load']),
             }
         }
 

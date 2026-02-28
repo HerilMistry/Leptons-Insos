@@ -175,3 +175,125 @@
   color: #fbbf24;
   font-weight: 600;
 }
+
+/* ── Recent Interventions List ──────────────────────────── */
+
+.cf-interventions-list {
+  max-height: 120px;
+  overflow-y: auto;
+}
+
+.cf-interventions-empty {
+  color: #6b7280;
+  font-size: 12px;
+  font-style: italic;
+}
+
+.cf-intervention-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 3px 0;
+  font-size: 12px;
+  border-bottom: 1px solid rgba(55, 48, 163, 0.4);
+}
+
+.cf-intervention-item:last-child {
+  border-bottom: none;
+}
+
+.cf-intervention-type {
+  color: #fbbf24;
+  font-weight: 500;
+  text-transform: capitalize;
+}
+
+#cf-intervention-ago {
+  color: #6b7280;
+  font-size: 11px;
+}
+
+/* ── Level-1 orb hints (no banner interruption) ───────── */
+
+@keyframes cf-amber-pulse {
+  0%, 100% { box-shadow: 0 2px 12px rgba(245,158,11,0.3); }
+  50%       { box-shadow: 0 2px 28px rgba(245,158,11,0.8); }
+}
+
+@keyframes cf-drift-pulse {
+  0%, 100% { box-shadow: 0 2px 12px rgba(59,130,246,0.2); }
+  50%       { box-shadow: 0 2px 28px rgba(59,130,246,0.7); }
+}
+
+#cf-orb.cf-amber-pulse {
+  background: #eab308;
+  animation: cf-amber-pulse 1.8s ease-in-out infinite;
+}
+
+#cf-orb.cf-drift-pulse {
+  background: #3b82f6;
+  animation: cf-drift-pulse 3s ease-in-out infinite;
+}
+
+#cf-orb.cf-fatigue-dim {
+  opacity: 0.55;
+  filter: saturate(0.6);
+}
+
+/* ── Breathing Timer overlay ──────────────────────────── */
+
+#cf-breathing-timer {
+  position: fixed;
+  inset: 0;
+  z-index: 2147483645;
+  background: rgba(0,0,0,0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+#cf-bt-inner {
+  background: #1e1b4b;
+  border-radius: 16px;
+  padding: 32px 40px;
+  text-align: center;
+  color: #e0e7ff;
+  min-width: 280px;
+  box-shadow: 0 8px 40px rgba(0,0,0,0.5);
+}
+
+#cf-bt-title { font-size: 20px; font-weight: 700; margin-bottom: 8px; }
+#cf-bt-sub   { font-size: 13px; color: #a5b4fc; margin-bottom: 20px; }
+
+@keyframes cf-breathe {
+  0%, 100% { transform: scale(1);   background: #4f46e5; }
+  50%       { transform: scale(1.3); background: #818cf8; }
+}
+
+#cf-bt-ring {
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  background: #4f46e5;
+  margin: 0 auto 16px;
+  animation: cf-breathe 4s ease-in-out infinite;
+}
+
+#cf-bt-countdown {
+  font-size: 32px;
+  font-weight: 700;
+  font-family: monospace;
+  margin-bottom: 16px;
+}
+
+#cf-bt-skip {
+  background: none;
+  border: 1px solid #4f46e5;
+  color: #a5b4fc;
+  border-radius: 8px;
+  padding: 6px 18px;
+  cursor: pointer;
+  font-size: 13px;
+}
+
+#cf-bt-skip:hover { background: #312e81; }

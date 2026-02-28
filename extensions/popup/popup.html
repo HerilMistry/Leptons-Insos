@@ -9,70 +9,64 @@
 <body>
   <div class="cf-popup">
 
-    <!-- Header -->
-    <div class="cf-popup-header">
-      <img src="../icons/icon48.png" alt="CortexFlow" class="cf-popup-logo" />
-      <h1>CortexFlow</h1>
-    </div>
-    <div id="cf-username" class="cf-username cf-hidden"></div>
-
-    <!-- Status -->
-    <div id="cf-status" class="cf-status cf-status-inactive">
-      <span id="cf-status-dot" class="cf-dot"></span>
-      <span id="cf-status-text">Inactive</span>
+    <!-- Header: logo + title + status dot -->
+    <div class="popup-header">
+      <img src="../icons/icon48.png" alt="CortexFlow" class="popup-logo" />
+      <span class="popup-title">CortexFlow</span>
+      <span id="status-dot" class="status-dot"></span>
     </div>
 
-    <!-- NLP Task classifier -->
-    <div class="cf-field cf-nlp-field">
-      <div class="cf-nlp-input-wrap">
-        <input
-          type="text"
-          id="cf-task-input"
-          class="cf-task-input"
-          maxlength="120"
-          placeholder="What are you working on? e.g. 'studying algorithms for exam'"
-        />
-        <span id="cf-char-count" class="cf-char-count">0/120</span>
+    <!-- Task selection -->
+    <div class="task-section">
+      <p class="task-label">What are you working on?</p>
+      <div class="task-grid">
+        <button class="task-btn wide active" data-task="general">🧠 General</button>
+        <button class="task-btn" data-task="coding">💻 Coding</button>
+        <button class="task-btn" data-task="writing">✍️ Writing</button>
+        <button class="task-btn" data-task="reading">📖 Reading</button>
+        <button class="task-btn" data-task="video">🎬 Video</button>
       </div>
-      <div id="cf-task-tag" class="cf-task-tag cf-hidden"></div>
+    </div>
+
+    <!-- Stats row (3 cards) — hidden until session active -->
+    <div id="stats-row" class="stats-row hidden">
+      <div class="stat-card">
+        <div class="stat-value" id="stat-risk">--</div>
+        <div class="stat-label">Risk</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-value" id="stat-drift">--</div>
+        <div class="stat-label">Drift</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-value" id="stat-instability">--</div>
+        <div class="stat-label">Instability</div>
+      </div>
+    </div>
+
+    <!-- Risk bar — hidden until session active -->
+    <div id="risk-bar-wrapper" class="risk-bar-wrapper hidden">
+      <div class="risk-bar-track">
+        <div id="risk-bar-fill" class="risk-bar-fill"></div>
+      </div>
+    </div>
+
+    <!-- Session timer — hidden until session active -->
+    <div id="session-timer" class="session-timer hidden">
+      <span id="timer-display">00:00</span>
     </div>
 
     <!-- Session controls -->
-    <div class="cf-actions">
-      <button id="cf-start-btn" class="cf-btn cf-btn-primary">Start Session</button>
-      <button id="cf-end-btn" class="cf-btn cf-btn-danger" disabled>End Session</button>
-    </div>
-
-    <!-- Live stats -->
-    <div id="cf-live-stats" class="cf-live-stats cf-hidden">
-      <div class="cf-stat-row">
-        <span class="cf-stat-label">Elapsed</span>
-        <span id="cf-elapsed" class="cf-stat-value">0:00</span>
-      </div>
-      <div class="cf-stat-row">
-        <span class="cf-stat-label">Tab switches</span>
-        <span id="cf-switches" class="cf-stat-value">0</span>
-      </div>
-      <div class="cf-stat-row">
-        <span class="cf-stat-label">Risk level</span>
-        <span id="cf-risk-level" class="cf-stat-value">—</span>
-      </div>
-    </div>
-
-    <!-- Sync from dashboard (shown when not logged in) -->
-    <button id="cf-sync-btn" type="button" class="cf-btn cf-btn-sync cf-hidden">
-      Sync from dashboard
-    </button>
+    <button id="primary-btn" class="primary-btn">Start Session</button>
+    <button id="danger-btn" class="danger-btn hidden">End Session</button>
 
     <!-- Dashboard link -->
-    <a id="cf-dashboard-link" class="cf-dashboard-link" target="_blank">
+    <a id="cf-dashboard-link" class="dashboard-link" target="_blank">
       Open Dashboard ↗
     </a>
 
     <!-- Footer -->
-    <div class="cf-popup-footer">
-      Team 9 Leptons · v1.0
-    </div>
+    <div class="popup-footer">Team 9 Leptons · v1.0</div>
   </div>
 
   <script src="../config.js"></script>

@@ -1,43 +1,36 @@
-import { useState, useRef, useCallback } from "react";
+import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   AlertTriangle,
   Loader2,
-  Pencil,
-  BookOpen,
-  Code2,
-  MonitorPlay,
-  Search,
-  RefreshCcw,
   ChevronUp,
   ChevronDown,
-  Sparkles,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardFooter,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
 import { useSession } from "@/hooks/useSession";
 import { useToast } from "@/hooks/use-toast";
-import { classifyTaskIntent } from "@/api/nlp.js";
 import AppLayout from "@/components/layout/AppLayout";
 
-// ─── Task-type icons ─────────────────────────────────────────────────────────
-const TASK_ICONS: Record<string, React.ElementType> = {
-  Writing: Pencil,
-  Reading: BookOpen,
-  Coding: Code2,
-  Watching: MonitorPlay,
-  Research: Search,
-};
+// ---- Task type options ----
+const TASK_OPTIONS = [
+  { value: "coding", emoji: "\ud83d\udcbb", label: "Coding" },
+  { value: "writing", emoji: "\u270d\ufe0f", label: "Writing" },
+  { value: "reading", emoji: "\ud83d\udcd6", label: "Reading" },
+  { value: "video", emoji: "\ud83c\udfac", label: "Lecture / Video" },
+  { value: "general", emoji: "\ud83e\udde0", label: "General" },
+] as const;
 
-// ─── Types ───────────────────────────────────────────────────────────────────
-interface TaskResult {
-  raw_input: string;
-  task_type: string;
-  task_label: string;
-  confidence: number;
-}
+type TaskValue = (typeof TASK_OPTIONS)[number]["value"];
 
-// ─── Duration Clock Picker ───────────────────────────────────────────────────
+// ---- Duration Clock Picker ----
 function DurationPicker({
   totalMinutes,
   onChange,
@@ -113,7 +106,9 @@ function DurationPicker({
         </div>
 
         {/* Separator */}
-        <span className="font-mono text-4xl font-bold text-muted-foreground/60 pb-6">:</span>
+        <span className="font-mono text-4xl font-bold text-muted-foreground/60 pb-6">
+          :
+        </span>
 
         {/* Minutes */}
         <div className={colClass(minutes > 0)}>
@@ -148,7 +143,10 @@ function DurationPicker({
           <span className="text-amber-400">Set a duration to continue</span>
         ) : (
           <>
-            <span className="text-[#6c63ff] font-semibold">{totalLabel()}</span> total
+            <span className="text-[#6c63ff] font-semibold">
+              {totalLabel()}
+            </span>{" "}
+            total
           </>
         )}
       </p>
@@ -156,121 +154,41 @@ function DurationPicker({
   );
 }
 
-// ─── Task Confirmation Card ───────────────────────────────────────────────────
-function TaskConfirmCard({
-  result,
-  onRetype,
-}: {
-  result: TaskResult;
-  onRetype: () => void;
-}) {
-  const Icon = TASK_ICONS[result.task_type] ?? Sparkles;
-  const pct = Math.round(result.confidence * 100);
-
-  return (
-    <div className="rounded-xl border border-[#6c63ff]/40 bg-[#6c63ff]/5 p-4 space-y-3 animate-in fade-in slide-in-from-bottom-2 duration-300">
-      <div className="flex items-start gap-3">
-        <div className="p-2 rounded-lg bg-[#6c63ff]/15 shrink-0">
-          <Icon className="h-5 w-5 text-[#6c63ff]" />
-        </div>
-        <div className="flex-1 min-w-0">
-          <p className="text-sm font-semibold text-foreground truncate">{result.task_label}</p>
-          <p className="text-xs text-muted-foreground mt-0.5 line-clamp-2 italic">
-            &ldquo;{result.raw_input}&rdquo;
-          </p>
-        </div>
-        <span className="shrink-0 text-xs font-medium px-2 py-0.5 rounded-full bg-[#6c63ff]/20 text-[#6c63ff] border border-[#6c63ff]/30">
-          {result.task_type}
-        </span>
-      </div>
-
-      {/* Confidence bar */}
-      <div className="space-y-1">
-        <div className="flex justify-between text-xs text-muted-foreground">
-          <span>Confidence</span>
-          <span className="font-mono">{pct}%</span>
-        </div>
-        <div className="h-1.5 rounded-full bg-secondary overflow-hidden">
-          <div
-            className="h-full rounded-full bg-gradient-to-r from-[#6c63ff] to-[#9b8fff] transition-all duration-700"
-            style={{ width: `${pct}%` }}
-          />
-        </div>
-      </div>
-
-      <button
-        type="button"
-        onClick={onRetype}
-        className="flex items-center gap-1 text-xs text-muted-foreground hover:text-[#6c63ff] transition-colors"
-      >
-        <RefreshCcw className="h-3 w-3" />
-        Not right? Retype
-      </button>
-    </div>
-  );
-}
-
-// ─── Main Page ───────────────────────────────────────────────────────────────
+// ---- Main Page ----
 export default function StartSessionPage() {
-  const [inputText, setInputText] = useState("");
-  const [analyzing, setAnalyzing] = useState(false);
-  const [taskResult, setTaskResult] = useState<TaskResult | null>(null);
+  const [selectedTask, setSelectedTask] = useState<TaskValue>("general");
   const [totalMinutes, setTotalMinutes] = useState(25);
   const [submitting, setSubmitting] = useState(false);
 
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
-  const { activeSession, isSessionActive, startSession, stopSession } = useSession();
+  const { activeSession, isSessionActive, startSession, stopSession } =
+    useSession();
   const { toast } = useToast();
   const navigate = useNavigate();
 
-  // ── Analyze via Groq ──────────────────────────────────────────────────────
-  const handleAnalyze = useCallback(async () => {
-    const trimmed = inputText.trim();
-    if (!trimmed) return;
-
-    setAnalyzing(true);
-    const result = await classifyTaskIntent(trimmed);
-    setAnalyzing(false);
-
-    if (!result) {
-      toast({
-        title: "Could not understand task",
-        description: "Please rephrase your task description and try again.",
-        variant: "destructive",
-      });
-      return;
-    }
-
-    setTaskResult(result);
-  }, [inputText, toast]);
-
-  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    if (e.key === "Enter" && !e.shiftKey) {
-      e.preventDefault();
-      handleAnalyze();
-    }
-  };
-
-  // ── Start Session ─────────────────────────────────────────────────────────
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!taskResult || totalMinutes < 5) return;
+    if (totalMinutes < 5) return;
 
+    const option = TASK_OPTIONS.find((o) => o.value === selectedTask)!;
     setSubmitting(true);
     try {
       await startSession({
-        task_type: taskResult.task_type as any,
-        task_label: taskResult.task_label,
-        task_description: taskResult.raw_input,
+        task_type: selectedTask as any,
+        task_label: option.label,
+        task_description: option.label,
         estimated_duration: totalMinutes,
       });
       toast({
         title: "Session started",
-        description: `Tracking "${taskResult.task_label}" — ${totalMinutes} min.`,
+        description: `Tracking "${option.label}" for ${totalMinutes} min.`,
       });
       navigate("/dashboard");
     } catch (err: any) {
-      toast({ title: "Error", description: err.message, variant: "destructive" });
+      toast({
+        title: "Error",
+        description: err.message,
+        variant: "destructive",
+      });
     } finally {
       setSubmitting(false);
     }
@@ -279,13 +197,20 @@ export default function StartSessionPage() {
   const handleStopCurrent = async () => {
     try {
       await stopSession();
-      toast({ title: "Session stopped", description: "Previous session has been saved." });
+      toast({
+        title: "Session stopped",
+        description: "Previous session has been saved.",
+      });
     } catch (err: any) {
-      toast({ title: "Error", description: err.message, variant: "destructive" });
+      toast({
+        title: "Error",
+        description: err.message,
+        variant: "destructive",
+      });
     }
   };
 
-  const canStart = !!taskResult && totalMinutes >= 5 && !isSessionActive;
+  const canStart = totalMinutes >= 5 && !isSessionActive;
 
   return (
     <AppLayout>
@@ -317,76 +242,57 @@ export default function StartSessionPage() {
 
         <Card className="bg-card border-border">
           <CardHeader>
-            <CardTitle className="text-foreground">Start a New Session</CardTitle>
+            <CardTitle className="text-foreground">
+              Start a New Session
+            </CardTitle>
             <CardDescription className="text-muted-foreground">
-              Describe what you&apos;re about to work on — CortexFlow will detect your task type
+              Choose your task type and set a duration to begin tracking
             </CardDescription>
           </CardHeader>
 
           <form onSubmit={handleSubmit}>
             <CardContent className="space-y-6">
-
-              {/* ── Section 1: NLP Task Input ─────────────────────────── */}
+              {/* Section 1: Task Type Selector */}
               <div className="space-y-3">
-                <label className="text-sm font-medium text-foreground">
-                  What are you working on?
+                <label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
+                  Select Task Mode
                 </label>
-
-                {!taskResult ? (
-                  <>
-                    <textarea
-                      ref={textareaRef}
-                      rows={3}
-                      value={inputText}
-                      onChange={(e) => setInputText(e.target.value)}
-                      onKeyDown={handleKeyDown}
-                      disabled={analyzing}
-                      placeholder={"Describe what you're about to work on...\ne.g. \"Debugging my Python backend code\""}
-                      className="w-full resize-none rounded-xl border border-border bg-secondary/60 px-4 py-3 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-[#6c63ff]/50 focus:border-[#6c63ff]/50 disabled:opacity-50 transition-all"
-                    />
-                    <Button
+                <div className="flex flex-wrap gap-3">
+                  {TASK_OPTIONS.map((opt) => (
+                    <button
+                      key={opt.value}
                       type="button"
-                      onClick={handleAnalyze}
-                      disabled={!inputText.trim() || analyzing}
-                      className="w-full bg-[#6c63ff] hover:bg-[#5a52e0] text-white font-medium"
+                      onClick={() => setSelectedTask(opt.value)}
+                      className={`flex flex-col items-center gap-1 min-w-[90px] px-4 py-3 rounded-xl border-2 cursor-pointer transition-all duration-150 ${
+                        selectedTask === opt.value
+                          ? "border-[#6366f1] bg-[rgba(99,102,241,0.15)] text-white font-medium"
+                          : "border-transparent bg-[rgba(255,255,255,0.04)] text-muted-foreground hover:bg-[rgba(255,255,255,0.08)] hover:text-foreground"
+                      }`}
                     >
-                      {analyzing ? (
-                        <>
-                          <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                          Analyzing task...
-                        </>
-                      ) : (
-                        <>
-                          <Sparkles className="h-4 w-4 mr-2" />
-                          Analyze Task →
-                        </>
-                      )}
-                    </Button>
-                  </>
-                ) : (
-                  <TaskConfirmCard
-                    result={taskResult}
-                    onRetype={() => {
-                      setTaskResult(null);
-                      setTimeout(() => textareaRef.current?.focus(), 50);
-                    }}
-                  />
-                )}
+                      <span className="text-xl">{opt.emoji}</span>
+                      <span className="text-xs whitespace-nowrap">
+                        {opt.label}
+                      </span>
+                    </button>
+                  ))}
+                </div>
               </div>
 
-              {/* ── Section 2: Duration Clock Picker ──────────────────── */}
+              {/* Section 2: Duration Clock Picker */}
               <div className="space-y-3">
                 <label className="text-sm font-medium text-foreground">
                   Estimated Duration
                 </label>
-                <DurationPicker totalMinutes={totalMinutes} onChange={setTotalMinutes} />
+                <DurationPicker
+                  totalMinutes={totalMinutes}
+                  onChange={setTotalMinutes}
+                />
                 {totalMinutes > 0 && totalMinutes < 5 && (
                   <p className="text-xs text-amber-400 text-center">
                     Minimum session length is 5 minutes
                   </p>
                 )}
               </div>
-
             </CardContent>
 
             <CardFooter>

@@ -209,6 +209,9 @@ class TelemetryView(APIView):
             switch_pressure=switch_pressure,
         )
 
+        # Stash for live endpoint
+        engine._last_result = result
+
         # --- Update session aggregate metrics ---
         I = result["instability"]
         D = result["drift"]
@@ -224,12 +227,21 @@ class TelemetryView(APIView):
             (session.avg_fatigue * session.switch_count + F) / n
         )
         session.switch_count = n
+
+        # Deep work tracking: a window is "deep work" if risk < 0.4, instability < 0.5, drift < 0.5
+        risk = result["risk"]
+        session.total_windows = session.total_windows + 1
+        if risk < 0.4 and I < 0.5 and D < 0.5:
+            session.deep_work_windows = session.deep_work_windows + 1
+
         session.save(
             update_fields=[
                 "avg_instability",
                 "avg_drift",
                 "avg_fatigue",
                 "switch_count",
+                "total_windows",
+                "deep_work_windows",
             ]
         )
 
@@ -267,12 +279,28 @@ class SessionStopView(APIView):
             session.save(update_fields=["end_time"])
             _session_engines.pop(str(session_id), None)
         except Session.DoesNotExist:
-            pass  # Idempotent — already gone is fine
+            return Response({"detail": "Session stopped."}, status=status.HTTP_200_OK)
         except Exception:
-            # Catches invalid UUID format or any other lookup error — treat as
-            # already-stopped (idempotent) so the website can clean up locally.
-            pass
-        return Response({"detail": "Session stopped."}, status=status.HTTP_200_OK)
+            return Response({"detail": "Session stopped."}, status=status.HTTP_200_OK)
+
+        duration_minutes = (
+            int((session.end_time - session.start_time).total_seconds() / 60)
+            if session.end_time else None
+        )
+        return Response(
+            {
+                "detail": "Session stopped.",
+                "session_id": str(session.id),
+                "deep_work_ratio": round(session.deep_work_ratio, 4),
+                "avg_instability": round(session.avg_instability, 4),
+                "avg_drift": round(session.avg_drift, 4),
+                "avg_fatigue": round(session.avg_fatigue, 4),
+                "duration_minutes": duration_minutes,
+                "total_windows": session.total_windows,
+                "deep_work_windows": session.deep_work_windows,
+            },
+            status=status.HTTP_200_OK,
+        )
 
 
 class SessionHistoryView(APIView):
@@ -297,7 +325,7 @@ class SessionHistoryView(APIView):
                 ),
                 "avg_instability": round(s.avg_instability, 4),
                 "switch_count": s.switch_count,
-                "deep_work_ratio": round(max(0.0, 1.0 - s.avg_instability), 4),
+                "deep_work_ratio": round(s.deep_work_ratio, 4),
             }
             for s in sessions
         ]
@@ -327,7 +355,7 @@ class SessionDetailView(APIView):
             "avg_drift": round(session.avg_drift, 4),
             "avg_fatigue": round(session.avg_fatigue, 4),
             "switch_count": session.switch_count,
-            "deep_work_ratio": round(max(0.0, 1.0 - session.avg_instability), 4),
+            "deep_work_ratio": round(session.deep_work_ratio, 4),
         }
         return Response(data, status=status.HTTP_200_OK)
 
@@ -363,7 +391,7 @@ class DashboardAnalyticsView(APIView):
         analytics = {
             "timeline": timeline,
             "network_state": {"ECN": 0.72, "DMN": 0.28, "Salience": 0.5, "Load": 0.6},
-            "deep_work_ratio": round(max(0.0, 1.0 - session.avg_instability), 4),
+            "deep_work_ratio": round(session.deep_work_ratio, 4),
             "switch_count": session.switch_count,
             "avg_instability": round(session.avg_instability, 4),
             "interventions": [],
@@ -380,3 +408,69 @@ def _empty_analytics():
         "avg_instability": 0.0,
         "interventions": [],
     }
+
+
+class SessionLiveView(APIView):
+    """GET /api/sessions/<session_id>/live/ — live metrics for an active session."""
+
+    def get(self, request, session_id):
+        try:
+            session = Session.objects.get(pk=session_id)
+        except Exception:
+            return Response({"error": "Session not found"}, status=status.HTTP_404_NOT_FOUND)
+
+        # Get the latest inference from the in-memory engine if available
+        engine = _session_engines.get(str(session_id))
+        latest = {}
+        if engine and hasattr(engine, '_last_result'):
+            latest = engine._last_result or {}
+
+        return Response(
+            {
+                "session_id": str(session.id),
+                "task_type": session.task_type,
+                "instability": latest.get("instability", round(session.avg_instability, 4)),
+                "drift": latest.get("drift", round(session.avg_drift, 4)),
+                "fatigue": latest.get("fatigue", round(session.avg_fatigue, 4)),
+                "risk": latest.get("risk", 0.0),
+                "network": latest.get("network", {"ECN": 0.72, "DMN": 0.28, "Salience": 0.5, "Load": 0.6}),
+                "deep_work_ratio": round(session.deep_work_ratio, 4),
+                "total_windows": session.total_windows,
+                "deep_work_windows": session.deep_work_windows,
+                "switch_count": session.switch_count,
+            },
+            status=status.HTTP_200_OK,
+        )
+
+
+class ActiveSessionView(APIView):
+    """GET /api/sessions/active/?user_id=<id> — find the running session for a user."""
+
+    def get(self, request):
+        user_id = request.query_params.get("user_id")
+        if not user_id:
+            return Response(
+                {"error": "user_id query param is required"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        try:
+            session = (
+                Session.objects.filter(user__pk=user_id, end_time__isnull=True)
+                .order_by("-start_time")
+                .first()
+            )
+        except Exception:
+            return Response({"status": "none"}, status=status.HTTP_200_OK)
+
+        if session is None:
+            return Response({"status": "none"}, status=status.HTTP_200_OK)
+
+        return Response(
+            {
+                "session_id": str(session.id),
+                "task_type": session.task_type,
+                "start_time": session.start_time.isoformat(),
+                "status": "active",
+            },
+            status=status.HTTP_200_OK,
+        )

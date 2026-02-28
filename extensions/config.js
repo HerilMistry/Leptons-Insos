@@ -15,8 +15,11 @@ const CF_CONFIG = Object.freeze({
   MAX_DURATION_NORM: 1.0,               // max normalised session duration
 
   // ── Risk thresholds ──────────────────────────────────────
-  RISK_WARN_THRESHOLD: 0.50,            // yellow orb
-  RISK_DANGER_THRESHOLD: 0.75,          // red orb + intervention banner
+  RISK_WARN_THRESHOLD: 0.35,            // yellow orb
+  RISK_DANGER_THRESHOLD: 0.60,          // red orb + intervention banner
+
+  // ── Dashboard URL ────────────────────────────────────────
+  DASHBOARD_URL: "http://localhost:5173",  // Vite frontend
 
   // ── Distractor domains ───────────────────────────────────
   DISTRACTOR_DOMAINS: [

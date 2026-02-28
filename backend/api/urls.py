@@ -1,12 +1,14 @@
 from django.urls import path
 
 from api.views import (
+    ActiveSessionView,
     DashboardAnalyticsView,
     LoginView,
     LogoutView,
     RegisterView,
     SessionDetailView,
     SessionHistoryView,
+    SessionLiveView,
     SessionStartView,
     SessionStopView,
     TelemetryView,
@@ -25,6 +27,10 @@ urlpatterns = [
     path("session/end/",              SessionStopView.as_view(),    name="session-end"),
     path("sessions/history/",         SessionHistoryView.as_view(), name="sessions-history"),
     path("sessions/<str:session_id>/detail/", SessionDetailView.as_view(), name="session-detail"),
+    path("sessions/<str:session_id>/live/",   SessionLiveView.as_view(),   name="session-live"),
+
+    # Active session lookup
+    path("sessions/active/", ActiveSessionView.as_view(), name="sessions-active"),
 
     # Dashboard analytics
     path("dashboard/analytics/", DashboardAnalyticsView.as_view(), name="dashboard-analytics"),
