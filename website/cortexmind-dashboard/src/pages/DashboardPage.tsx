@@ -4,7 +4,8 @@ import { Play } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import BrainVisualization from "@/components/dashboard/BrainVisualization";
+import BrainNetworkViz from "@/components/dashboard/BrainNetworkViz";
+import PredictiveBreakdownForecast from "@/components/dashboard/PredictiveBreakdownForecast";
 import TimelineChart from "@/components/dashboard/TimelineChart";
 import NetworkRadarChart from "@/components/dashboard/NetworkRadarChart";
 import AttentionSummary from "@/components/dashboard/AttentionSummary";
@@ -102,6 +103,9 @@ export default function DashboardPage() {
         {/* Dashboard content */}
         {!isEmpty && !sessionsError && (
           <>
+            {/* Predictive Breakdown Forecast */}
+            <PredictiveBreakdownForecast analytics={analytics} />
+
             {/* Brain + Attention Cards */}
             <div className="grid lg:grid-cols-3 gap-6">
               <Card className="bg-card border-border lg:col-span-1">
@@ -109,7 +113,7 @@ export default function DashboardPage() {
                   <CardTitle className="text-foreground text-base">Brain Network Activity</CardTitle>
                 </CardHeader>
                 <CardContent>
-                  <BrainVisualization
+                  <BrainNetworkViz
                     networkState={analytics?.network_state}
                     isLoading={analyticsLoading}
                   />
