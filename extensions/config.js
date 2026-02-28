@@ -11,7 +11,7 @@ const CF_CONFIG = Object.freeze({
   // PRODUCTION: change this to your Render URL before sharing
   // e.g. "https://cortexflow-api.onrender.com"
   // LOCAL DEV: use "http://localhost:8000"
-  API_BASE_URL: "http://localhost:8000",
+  API_BASE_URL: "https://cortexflow-backend.onrender.com",
 
   // ── Telemetry ────────────────────────────────────────────
   TELEMETRY_INTERVAL_MS: 5000,          // collect metrics every 5 s
@@ -22,10 +22,7 @@ const CF_CONFIG = Object.freeze({
   RISK_DANGER_THRESHOLD: 0.60,          // red orb + intervention banner
 
   // ── Dashboard URL ────────────────────────────────────────
-  // PRODUCTION: change this to your Vercel URL before sharing
-  // e.g. "https://cortexflow.vercel.app"
-  // LOCAL DEV: use "http://localhost:5173"
-  DASHBOARD_URL: "http://localhost:5173",
+  DASHBOARD_URL: "https://leptons-insos.vercel.app",
 
   // ── Distractor domains ───────────────────────────────────
   DISTRACTOR_DOMAINS: [
