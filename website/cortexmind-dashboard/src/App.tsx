@@ -12,6 +12,7 @@ import DashboardPage from "@/pages/DashboardPage";
 import StartSessionPage from "@/pages/StartSessionPage";
 import SessionHistoryPage from "@/pages/SessionHistoryPage";
 import NotFound from "@/pages/NotFound";
+import DetailedReportPage from "@/pages/DetailedReportPage";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -47,6 +48,14 @@ const App = () => (
                 element={
                   <ProtectedRoute>
                     <StartSessionPage />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/detailed-report"
+                element={
+                  <ProtectedRoute>
+                    <DetailedReportPage />
                   </ProtectedRoute>
                 }
               />
