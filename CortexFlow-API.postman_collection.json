@@ -1,0 +1,380 @@
+{
+  "info": {
+    "name": "CortexFlow API",
+    "description": "Complete API collection for CortexFlow backend",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "Auth",
+      "item": [
+        {
+          "name": "Register",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"username\": \"testuser\",\n  \"email\": \"test@example.com\",\n  \"password\": \"testpass123\"\n}"
+            },
+            "url": {
+              "raw": "https://cortex-flow.onrender.com/api/auth/register/",
+              "protocol": "https",
+              "host": [
+                "cortex-flow",
+                "onrender",
+                "com"
+              ],
+              "path": [
+                "api",
+                "auth",
+                "register",
+                ""
+              ]
+            }
+          }
+        },
+        {
+          "name": "Login",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"username\": \"testuser\",\n  \"password\": \"testpass123\"\n}"
+            },
+            "url": {
+              "raw": "https://cortex-flow.onrender.com/api/auth/login/",
+              "protocol": "https",
+              "host": [
+                "cortex-flow",
+                "onrender",
+                "com"
+              ],
+              "path": [
+                "api",
+                "auth",
+                "login",
+                ""
+              ]
+            }
+          }
+        },
+        {
+          "name": "Logout",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{access_token}}",
+                "disabled": false
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{}"
+            },
+            "url": {
+              "raw": "https://cortex-flow.onrender.com/api/auth/logout/",
+              "protocol": "https",
+              "host": [
+                "cortex-flow",
+                "onrender",
+                "com"
+              ],
+              "path": [
+                "api",
+                "auth",
+                "logout",
+                ""
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Sessions",
+      "item": [
+        {
+          "name": "Start Session",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{access_token}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"task\": \"coding\",\n  \"duration_minutes\": 30\n}"
+            },
+            "url": {
+              "raw": "https://cortex-flow.onrender.com/api/session/start/",
+              "protocol": "https",
+              "host": [
+                "cortex-flow",
+                "onrender",
+                "com"
+              ],
+              "path": [
+                "api",
+                "session",
+                "start",
+                ""
+              ]
+            }
+          }
+        },
+        {
+          "name": "Stop Session",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{access_token}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"session_id\": \"{{session_id}}\"\n}"
+            },
+            "url": {
+              "raw": "https://cortex-flow.onrender.com/api/sessions/stop/",
+              "protocol": "https",
+              "host": [
+                "cortex-flow",
+                "onrender",
+                "com"
+              ],
+              "path": [
+                "api",
+                "sessions",
+                "stop",
+                ""
+              ]
+            }
+          }
+        },
+        {
+          "name": "Session History",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{access_token}}"
+              }
+            ],
+            "url": {
+              "raw": "https://cortex-flow.onrender.com/api/sessions/history/",
+              "protocol": "https",
+              "host": [
+                "cortex-flow",
+                "onrender",
+                "com"
+              ],
+              "path": [
+                "api",
+                "sessions",
+                "history",
+                ""
+              ]
+            }
+          }
+        },
+        {
+          "name": "Session Detail",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{access_token}}"
+              }
+            ],
+            "url": {
+              "raw": "https://cortex-flow.onrender.com/api/sessions/{{session_id}}/detail/",
+              "protocol": "https",
+              "host": [
+                "cortex-flow",
+                "onrender",
+                "com"
+              ],
+              "path": [
+                "api",
+                "sessions",
+                "{{session_id}}",
+                "detail",
+                ""
+              ]
+            }
+          }
+        },
+        {
+          "name": "Session Live",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{access_token}}"
+              }
+            ],
+            "url": {
+              "raw": "https://cortex-flow.onrender.com/api/sessions/{{session_id}}/live/",
+              "protocol": "https",
+              "host": [
+                "cortex-flow",
+                "onrender",
+                "com"
+              ],
+              "path": [
+                "api",
+                "sessions",
+                "{{session_id}}",
+                "live",
+                ""
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Dashboard & Analytics",
+      "item": [
+        {
+          "name": "Dashboard Analytics",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{access_token}}"
+              }
+            ],
+            "url": {
+              "raw": "https://cortex-flow.onrender.com/api/dashboard/analytics/",
+              "protocol": "https",
+              "host": [
+                "cortex-flow",
+                "onrender",
+                "com"
+              ],
+              "path": [
+                "api",
+                "dashboard",
+                "analytics",
+                ""
+              ]
+            }
+          }
+        },
+        {
+          "name": "Active Session",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{access_token}}"
+              }
+            ],
+            "url": {
+              "raw": "https://cortex-flow.onrender.com/api/session/active/",
+              "protocol": "https",
+              "host": [
+                "cortex-flow",
+                "onrender",
+                "com"
+              ],
+              "path": [
+                "api",
+                "session",
+                "active",
+                ""
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Telemetry",
+      "item": [
+        {
+          "name": "Send Telemetry",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{access_token}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"session_id\": \"{{session_id}}\",\n  \"eye_gaze_x\": 100,\n  \"eye_gaze_y\": 200,\n  \"attention_score\": 0.85,\n  \"timestamp\": \"2026-02-28T12:00:00Z\"\n}"
+            },
+            "url": {
+              "raw": "https://cortex-flow.onrender.com/api/telemetry/",
+              "protocol": "https",
+              "host": [
+                "cortex-flow",
+                "onrender",
+                "com"
+              ],
+              "path": [
+                "api",
+                "telemetry",
+                ""
+              ]
+            }
+          }
+        }
+      ]
+    }
+  ],
+  "variable": [
+    {
+      "key": "access_token",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "session_id",
+      "value": "",
+      "type": "string"
+    }
+  ]
+}
