@@ -20,7 +20,7 @@ DEBUG = os.environ.get('DJANGO_DEBUG', 'False') == 'True'
 
 ALLOWED_HOSTS = os.environ.get(
     'ALLOWED_HOSTS',
-    'localhost,127.0.0.1'
+    'localhost,127.0.0.1,cortex-flow.onrender.com'
 ).split(',')
 
 # ---------------------------------------------------------------------------
@@ -44,9 +44,9 @@ INSTALLED_APPS = [
 # Middleware
 # ---------------------------------------------------------------------------
 MIDDLEWARE = [
+    "django.middleware.security.SecurityMiddleware",
     "corsheaders.middleware.CorsMiddleware",
     "whitenoise.middleware.WhiteNoiseMiddleware",
-    "django.middleware.security.SecurityMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
@@ -60,9 +60,38 @@ MIDDLEWARE = [
 # ---------------------------------------------------------------------------
 CORS_ALLOWED_ORIGINS = os.environ.get(
     'CORS_ALLOWED_ORIGINS',
-    'http://localhost:5173,http://localhost:3000'
+    'http://localhost:5173,http://localhost:3000,https://leptons-insos.vercel.app'
 ).split(',')
 CORS_ALLOW_ALL_ORIGINS = DEBUG  # Only allow all origins in development
+
+CORS_ALLOW_CREDENTIALS = True
+
+CORS_ALLOW_HEADERS = [
+    "accept",
+    "accept-encoding",
+    "authorization",
+    "content-type",
+    "dnt",
+    "origin",
+    "user-agent",
+    "x-csrftoken",
+    "x-requested-with",
+]
+
+CORS_ALLOW_METHODS = [
+    "DELETE",
+    "GET",
+    "OPTIONS",
+    "PATCH",
+    "POST",
+    "PUT",
+]
+
+# Trust Vercel and localhost for CSRF (needed for POST requests from browser)
+CSRF_TRUSTED_ORIGINS = os.environ.get(
+    'CSRF_TRUSTED_ORIGINS',
+    'https://leptons-insos.vercel.app,http://localhost:5173,http://localhost:3000'
+).split(',')
 
 # ---------------------------------------------------------------------------
 # URLs & templates
@@ -140,6 +169,9 @@ STATICFILES_STORAGE = 'whitenoise.storage.CompressedManifestStaticFilesStorage'
 # ---------------------------------------------------------------------------
 REST_FRAMEWORK = {
     "DEFAULT_AUTHENTICATION_CLASSES": [
+        # JWTAuthentication only — no SessionAuthentication.
+        # This is critical: SessionAuthentication enforces CSRF checks.
+        # With JWT-only auth, Django's CSRF middleware does NOT block API views.
         "rest_framework_simplejwt.authentication.JWTAuthentication",
     ],
     "DEFAULT_PERMISSION_CLASSES": [
@@ -148,6 +180,9 @@ REST_FRAMEWORK = {
         "rest_framework.permissions.AllowAny",
     ],
 }
+
+# Apply CORS headers to all /api/* routes
+CORS_URLS_REGEX = r"^/api/.*$"
 
 # ---------------------------------------------------------------------------
 # Default primary key field type
