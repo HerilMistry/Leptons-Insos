@@ -324,8 +324,12 @@ class SessionHistoryView(APIView):
                     if s.end_time else None
                 ),
                 "avg_instability": round(s.avg_instability, 4),
+                "avg_drift": round(s.avg_drift, 4),
+                "avg_fatigue": round(s.avg_fatigue, 4),
                 "switch_count": s.switch_count,
                 "deep_work_ratio": round(s.deep_work_ratio, 4),
+                "total_windows": s.total_windows,
+                "deep_work_windows": s.deep_work_windows,
             }
             for s in sessions
         ]

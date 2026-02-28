@@ -35,7 +35,11 @@ export interface Session {
   duration_minutes: number | null;
   deep_work_ratio: number | null;
   avg_instability: number | null;
+  avg_drift: number | null;
+  avg_fatigue: number | null;
   switch_count: number | null;
+  total_windows?: number | null;
+  deep_work_windows?: number | null;
 }
 
 export interface StartSessionRequest {

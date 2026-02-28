@@ -1,8 +1,8 @@
 /**
- * Rolling 10-Minute Aggregator
+ * Rolling 1-Minute Aggregator
  * ----------------------------
- * In-memory circular buffer storing the last 120 telemetry snapshots
- * (5 s cadence × 120 = 10 minutes).  All computation happens in the browser.
+ * In-memory circular buffer storing the last 12 telemetry snapshots
+ * (5 s cadence × 12 = 1 minute).  All computation happens in the browser.
  */
 
 export interface TelemetryEntry {
@@ -37,7 +37,7 @@ export interface TenMinSummary {
   entryCount: number;
 }
 
-const MAX_ENTRIES = 120; // 10 min × 12 entries/min
+const MAX_ENTRIES = 12; // 1 min × 12 entries/min
 
 class RollingAggregator {
   private buffer: TelemetryEntry[] = [];
