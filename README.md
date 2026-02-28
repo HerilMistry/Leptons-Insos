@@ -206,10 +206,11 @@ npm run dev
 
 ### 3. Chrome Extension
 
-1. Open `chrome://extensions/`
-2. Enable **Developer mode**
-3. Click **Load unpacked** → select the `extensions/` folder
-4. The CortexFlow icon appears in the toolbar
+1. **Unzip the Extension**: Locate `extensions.zip` in the root directory and unzip it (the folder `extensions/` should appear).
+2. **Open Extensions**: In Chrome, go to `chrome://extensions/`.
+3. **Enable Developer Mode**: Toggle the **Developer mode** switch in the top-right corner.
+4. **Load Extension**: Click **Load unpacked** and select the `extensions/` folder.
+5. **Pin & Use**: The CortexFlow icon appears in the toolbar. Pin it for quick access! ✅
 
 ### 4. Run Verification (optional)
 
