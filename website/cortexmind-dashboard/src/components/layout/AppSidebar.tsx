@@ -1,4 +1,4 @@
-import { Brain, LayoutDashboard, Play, History, FileBarChart, BookOpen } from "lucide-react";
+import { Brain, LayoutDashboard, Play, History, FileBarChart, BookOpen, User } from "lucide-react";
 import { NavLink } from "@/components/NavLink";
 import { useLocation } from "react-router-dom";
 import {
@@ -19,6 +19,7 @@ const navItems = [
   { title: "Session History", url: "/session/history", icon: History },
   { title: "Detailed Report", url: "/detailed-report", icon: FileBarChart },
   { title: "Bibliography", url: "/bibliography", icon: BookOpen },
+  { title: "Profile", url: "/profile", icon: User },
 ];
 
 export default function AppSidebar() {
