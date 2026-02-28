@@ -335,8 +335,8 @@ let consecutiveHighRisk    = 0;
       setTimeout(function() { if (banner.parentNode) banner.remove(); }, 300);
     }
     isBreakdownActive = false;
-    // Set cooldown: 3 minutes from dismissal before banner can fire again
-    breakdownCooldownUntil = Date.now() + (3 * 60 * 1000);
+    // Short 1-second cooldown — banner re-fires every time risk re-enters red
+    breakdownCooldownUntil = Date.now() + 1000;
     // Reset orb to current actual color
     updateOrbColor(currentRiskLevel);
   }
