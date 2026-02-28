@@ -10,6 +10,7 @@ import NetworkRadarChart from "@/components/dashboard/NetworkRadarChart";
 import AttentionSummary from "@/components/dashboard/AttentionSummary";
 import InterventionMarkers from "@/components/dashboard/InterventionMarkers";
 import SessionSummaryTable from "@/components/dashboard/SessionSummaryTable";
+import ExplainBrainButton from "@/components/dashboard/ExplainBrainButton";
 import { useSessionHistory, useDashboardAnalytics } from "@/hooks/useDashboard";
 import AppLayout from "@/components/layout/AppLayout";
 
@@ -37,23 +38,30 @@ export default function DashboardPage() {
             <h1 className="text-2xl font-bold text-foreground">Dashboard</h1>
             <p className="text-sm text-muted-foreground">Cognitive state analytics</p>
           </div>
-          {sessions && sessions.length > 0 && (
-            <Select
-              value={activeSessionId || undefined}
-              onValueChange={setSelectedSessionId}
-            >
-              <SelectTrigger className="w-64 bg-secondary border-border text-foreground">
-                <SelectValue placeholder="Select a session" />
-              </SelectTrigger>
-              <SelectContent className="bg-card border-border">
-                {sessions.map((s) => (
-                  <SelectItem key={s.id} value={s.id} className="text-foreground">
-                    {s.task_type} — {new Date(s.started_at).toLocaleDateString()}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          )}
+          <div className="flex items-center gap-3">
+            {sessions && sessions.length > 0 && (
+              <Select
+                value={activeSessionId || undefined}
+                onValueChange={setSelectedSessionId}
+              >
+                <SelectTrigger className="w-64 bg-secondary border-border text-foreground">
+                  <SelectValue placeholder="Select a session" />
+                </SelectTrigger>
+                <SelectContent className="bg-card border-border">
+                  {sessions.map((s) => (
+                    <SelectItem key={s.id} value={s.id} className="text-foreground">
+                      {s.task_type} — {new Date(s.started_at).toLocaleDateString()}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
+            <ExplainBrainButton
+              analytics={analytics}
+              session={sessions?.find((s) => s.id === activeSessionId)}
+              allSessions={sessions}
+            />
+          </div>
         </div>
 
         {/* Error state */}

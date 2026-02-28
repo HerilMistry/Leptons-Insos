@@ -86,7 +86,7 @@ def merge_datasets(nasa_file, mooc_file, mouse_file, output_file):
 
     np.random.seed(42)
 
-    n_sessions   = 600    # number of simulated sessions
+    n_sessions   = 3000   # number of simulated sessions
     session_len  = 20     # timesteps per session (20 × 5s = 100s window)
     # Scenario split: balanced across 5 distinct behavioral profiles
     scenario_names = ['focus', 'conflict', 'drift', 'fatigue', 'mixed']
