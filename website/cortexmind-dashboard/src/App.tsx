@@ -13,6 +13,7 @@ import StartSessionPage from "@/pages/StartSessionPage";
 import SessionHistoryPage from "@/pages/SessionHistoryPage";
 import NotFound from "@/pages/NotFound";
 import DetailedReportPage from "@/pages/DetailedReportPage";
+import BibliographyPage from "@/pages/BibliographyPage";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -56,6 +57,14 @@ const App = () => (
                 element={
                   <ProtectedRoute>
                     <DetailedReportPage />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/bibliography"
+                element={
+                  <ProtectedRoute>
+                    <BibliographyPage />
                   </ProtectedRoute>
                 }
               />
