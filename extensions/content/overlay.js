@@ -222,7 +222,7 @@ let consecutiveHighRisk    = 0;
     // attribution is the only field needed for the banner
 
     // Per-task red threshold (coding is stricter since mouse noise is expected)
-    var RED_THRESHOLDS = { coding: 0.50, writing: 0.60, reading: 0.60, video: 0.65, general: 0.65 };
+    var RED_THRESHOLDS = { coding: 0.50, writing: 0.60, reading: 0.55, video: 0.65, general: 0.65 };
     var redAt = RED_THRESHOLDS[_currentTask] || 0.65;
 
     // Determine current level
