@@ -221,9 +221,13 @@ let consecutiveHighRisk    = 0;
     var attribution = inferenceData.attribution;
     // attribution is the only field needed for the banner
 
+    // Per-task red threshold (coding is stricter since mouse noise is expected)
+    var RED_THRESHOLDS = { coding: 0.50, writing: 0.60, reading: 0.60, video: 0.65, general: 0.65 };
+    var redAt = RED_THRESHOLDS[_currentTask] || 0.65;
+
     // Determine current level
     previousRiskLevel = currentRiskLevel;
-    if (risk >= 0.65 || breakdown_imminent) {
+    if (risk >= redAt || breakdown_imminent) {
       currentRiskLevel = 'red';
     } else if (risk >= 0.45) {
       currentRiskLevel = 'yellow';
