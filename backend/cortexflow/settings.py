@@ -102,10 +102,10 @@ else:
     DATABASES = {
         "default": {
             "ENGINE": "django.db.backends.postgresql",
-            "NAME": os.getenv("DB_NAME", "cortexflow"),
-            "USER": os.getenv("DB_USER", "postgres"),
-            "PASSWORD": os.getenv("DB_PASSWORD", "postgres"),
-            "HOST": os.getenv("DB_HOST", "localhost"),
+            "NAME": os.getenv("DB_NAME", "postgres"),
+            "USER": os.getenv("DB_USER", "postgres.aercvmdaghrtddaobgef"),
+            "PASSWORD": os.getenv("DB_PASSWORD", "brijesh123098"),
+            "HOST": os.getenv("DB_HOST", "aws-1-ap-south-1.pooler.supabase.com"),
             "PORT": os.getenv("DB_PORT", "5432"),
         }
     }
