@@ -5,6 +5,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { AuthProvider } from "@/context/AuthContext";
 import { SessionProvider } from "@/context/SessionContext";
+import { CognitiveStateProvider } from "@/context/CognitiveStateContext";
 import ProtectedRoute from "@/components/layout/ProtectedRoute";
 import LoginPage from "@/pages/LoginPage";
 import RegisterPage from "@/pages/RegisterPage";
@@ -33,6 +34,7 @@ const App = () => (
       <BrowserRouter>
         <AuthProvider>
           <SessionProvider>
+          <CognitiveStateProvider>
             <Routes>
               <Route path="/" element={<Navigate to="/dashboard" replace />} />
               <Route path="/login" element={<LoginPage />} />
@@ -82,6 +84,7 @@ const App = () => (
               <Route path="/session/:id" element={<ProtectedRoute><NotFound /></ProtectedRoute>} />
               <Route path="*" element={<NotFound />} />
             </Routes>
+          </CognitiveStateProvider>
           </SessionProvider>
         </AuthProvider>
       </BrowserRouter>

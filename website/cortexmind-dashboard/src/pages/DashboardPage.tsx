@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Link } from "react-router-dom";
 import { Play } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -14,6 +14,7 @@ import SessionSummaryTable from "@/components/dashboard/SessionSummaryTable";
 import ExplainBrainButton from "@/components/dashboard/ExplainBrainButton";
 import { useSessionHistory, useDashboardAnalytics } from "@/hooks/useDashboard";
 import AppLayout from "@/components/layout/AppLayout";
+import { useCognitiveState } from "@/context/CognitiveStateContext";
 
 export default function DashboardPage() {
   const { data: sessions, isLoading: sessionsLoading, error: sessionsError } = useSessionHistory();
@@ -29,6 +30,21 @@ export default function DashboardPage() {
   } = useDashboardAnalytics(activeSessionId);
 
   const isEmpty = !sessionsLoading && (!sessions || sessions.length === 0);
+
+  /* Push live cognitive state to context for the Navbar MusicPanel */
+  const { setCognitiveState } = useCognitiveState();
+  useEffect(() => {
+    if (!analytics) { setCognitiveState(null); return; }
+    const tl = analytics.timeline;
+    const last = tl?.length ? tl[tl.length - 1] : null;
+    setCognitiveState({
+      ECN: analytics.network_state?.ECN ?? 0,
+      instability: last?.instability ?? analytics.avg_instability ?? 0,
+      drift: last?.drift ?? 0,
+      fatigue: last?.fatigue ?? 0,
+      risk: analytics.avg_instability ?? 0,
+    });
+  }, [analytics, setCognitiveState]);
 
   return (
     <AppLayout>

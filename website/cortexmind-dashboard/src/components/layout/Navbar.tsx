@@ -2,6 +2,7 @@ import { LogOut, User } from "lucide-react";
 import { SidebarTrigger } from "@/components/ui/sidebar";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/hooks/useAuth";
+import MusicPanel from "@/components/dashboard/MusicPanel";
 
 export default function Navbar() {
   const { user, logout } = useAuth();
@@ -13,6 +14,7 @@ export default function Navbar() {
       </div>
 
       <div className="flex items-center gap-3">
+        <MusicPanel />
         {user && (
           <span className="text-sm text-muted-foreground flex items-center gap-1.5">
             <User className="h-3.5 w-3.5" />
