@@ -58,10 +58,14 @@ MIDDLEWARE = [
 # ---------------------------------------------------------------------------
 # CORS
 # ---------------------------------------------------------------------------
-CORS_ALLOWED_ORIGINS = os.environ.get(
+_raw_cors_origins = os.environ.get(
     'CORS_ALLOWED_ORIGINS',
-    'http://localhost:5173,http://localhost:3000,https://leptons-insos.vercel.app,https://leptons-insos.vercel.app'
+    'http://localhost:5173,http://localhost:3000,https://leptons-insos.vercel.app'
 ).split(',')
+CORS_ALLOWED_ORIGINS = [
+    origin.strip() if origin.strip().startswith(('http://', 'https://')) else f"https://{origin.strip()}"
+    for origin in _raw_cors_origins if origin.strip()
+]
 CORS_ALLOW_ALL_ORIGINS = DEBUG  # Only allow all origins in development
 
 CORS_ALLOW_CREDENTIALS = True
@@ -88,10 +92,14 @@ CORS_ALLOW_METHODS = [
 ]
 
 # Trust Vercel and localhost for CSRF (needed for POST requests from browser)
-CSRF_TRUSTED_ORIGINS = os.environ.get(
+_raw_csrf_origins = os.environ.get(
     'CSRF_TRUSTED_ORIGINS',
     'https://leptons-insos.vercel.app,http://localhost:5173,http://localhost:3000'
 ).split(',')
+CSRF_TRUSTED_ORIGINS = [
+    origin.strip() if origin.strip().startswith(('http://', 'https://')) else f"https://{origin.strip()}"
+    for origin in _raw_csrf_origins if origin.strip()
+]
 
 # ---------------------------------------------------------------------------
 # URLs & templates
